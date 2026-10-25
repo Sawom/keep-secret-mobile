@@ -1,6 +1,5 @@
-import React from "react";
-import { FlatList, Text, TextInput, View, Pressable } from "react-native";
-import { EmptyState, ScreenHeader } from "../components/Controls";
+import { SectionList, Text, View } from "react-native";
+import { EmptyState } from "../components/Controls";
 import { NoteCard, NotebookCard } from "../components/Cards";
 import type { Note, Notebook } from "../types";
 import type { Theme } from "../theme/theme";
@@ -9,7 +8,6 @@ export function SearchScreen({
   notes,
   notebooks,
   query,
-  setQuery,
   onOpenNote,
   onTrashNote,
   onPinNote,
@@ -21,7 +19,6 @@ export function SearchScreen({
   notes: Note[];
   notebooks: Notebook[];
   query: string;
-  setQuery: (v: string) => void;
   onOpenNote: (n: Note) => void;
   onTrashNote: (n: Note) => void;
   onPinNote: (n: Note) => void;
@@ -38,30 +35,6 @@ export function SearchScreen({
   );
   return (
     <View style={{ flex: 1 }}>
-      <ScreenHeader
-        theme={theme}
-        eyebrow="Find anything"
-        title="Search"
-        subtitle={`${foundNotes.length} notes · ${foundBooks.length} notebooks`}
-      />
-      <View style={{ padding: 16, paddingBottom: 6 }}>
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search notes and notebooks…"
-          placeholderTextColor={theme.muted}
-          autoFocus
-          style={{
-            minHeight: 48,
-            borderWidth: 1,
-            borderColor: theme.border,
-            borderRadius: 14,
-            paddingHorizontal: 14,
-            color: theme.text,
-            backgroundColor: theme.card,
-          }}
-        />
-      </View>
       {!q ? (
         <EmptyState
           theme={theme}
@@ -75,17 +48,51 @@ export function SearchScreen({
           body="Try a different keyword."
         />
       ) : (
-        <FlatList
-          data={[
-            ...foundBooks.map((x) => ({ kind: "book" as const, item: x })),
-            ...foundNotes.map((x) => ({ kind: "note" as const, item: x })),
+        <SectionList
+          sections={[
+            ...(foundNotes.length
+              ? [
+                  {
+                    title: `Notes (${foundNotes.length})`,
+                    data: foundNotes.map((item) => ({
+                      kind: "note" as const,
+                      item,
+                    })),
+                  },
+                ]
+              : []),
+            ...(foundBooks.length
+              ? [
+                  {
+                    title: `Notebooks (${foundBooks.length})`,
+                    data: foundBooks.map((item) => ({
+                      kind: "book" as const,
+                      item,
+                    })),
+                  },
+                ]
+              : []),
           ]}
-          keyExtractor={(x) => `${x.kind}-${x.item.id}`}
+          keyExtractor={(row) => `${row.kind}-${row.item.id}`}
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingTop: 8,
             paddingBottom: 20,
           }}
+          stickySectionHeadersEnabled={false}
+          renderSectionHeader={({ section }) => (
+            <Text
+              style={{
+                color: theme.text,
+                fontSize: 16,
+                fontWeight: "900",
+                marginTop: 10,
+                marginBottom: 8,
+              }}
+            >
+              {section.title}
+            </Text>
+          )}
           renderItem={({ item }) =>
             item.kind === "note" ? (
               <NoteCard
