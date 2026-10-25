@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { Theme } from "../theme/theme";
 
-/** Mobile landing page. For exact word-for-word parity, replace copy with the web homepage copy. */
+/** Mobile landing page updated to match the Web Homepage design and copy exactly. */
 export function HomeScreen({
   theme,
   isDark,
@@ -19,52 +19,64 @@ export function HomeScreen({
 }) {
   const features = [
     {
-      icon: "lock-closed-outline" as const,
-      title: "Private by design",
-      body: "Keep your personal notes protected in your KeepSecret account.",
+      icon: "eye-off-outline" as const,
+      title: "Zero-Knowledge Core",
+      body: "Data is locked on your browser before hitting our servers. We store ciphertexts, never plaintext.",
+      borderColor: "rgba(99, 102, 241, 0.4)",
     },
     {
-      icon: "book-outline" as const,
-      title: "Notes and notebooks",
-      body: "Keep quick notes separate or organize them into notebooks and chapters.",
+      icon: "layers-outline" as const,
+      title: "Notebooks & Chapters",
+      body: "Organize complex thoughts, project ideas, or journals into custom color-coded notebooks seamlessly.",
+      borderColor: "rgba(139, 92, 246, 0.4)",
     },
     {
-      icon: "search-outline" as const,
-      title: "Find things quickly",
-      body: "Search note titles, note content, and notebook names in one place.",
+      icon: "hardware-chip-outline" as const,
+      title: "Smart Trash Lifecycle",
+      body: "Accidental deletions are safe with soft-delete trash bins, paired with automated cron purging.",
+      borderColor: "rgba(236, 72, 153, 0.4)",
     },
   ];
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.bg }}
-      contentContainerStyle={{ padding: 22, paddingBottom: 36 }}
+      contentContainerStyle={{ padding: 22, paddingBottom: 48 }}
     >
+      {/* Navbar */}
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 38,
+          marginBottom: 32,
         }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <View
             style={{
-              width: 42,
-              height: 42,
-              borderRadius: 14,
+              width: 40,
+              height: 40,
+              borderRadius: 12,
               backgroundColor: theme.brand,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Ionicons name="lock-closed" size={22} color="#fff" />
+            <Ionicons name="key-outline" size={20} color="#fff" />
           </View>
-          <Text style={{ color: theme.text, fontWeight: "900", fontSize: 20 }}>
-            KeepSecret
+          <Text
+            style={{
+              color: theme.text,
+              fontWeight: "800",
+              fontSize: 20,
+              letterSpacing: -0.5,
+            }}
+          >
+            Keep<Text style={{ color: theme.brand }}>Secret</Text>
           </Text>
         </View>
+
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
@@ -72,122 +84,260 @@ export function HomeScreen({
           }
           onPress={onToggleTheme}
           hitSlop={10}
-          style={{ padding: 10 }}
+          style={{
+            padding: 8,
+            borderRadius: 10,
+            backgroundColor: theme.card,
+            borderWidth: 1,
+            borderColor: theme.border,
+          }}
         >
           <Ionicons
             name={isDark ? "sunny-outline" : "moon-outline"}
-            size={22}
+            size={20}
             color={theme.text}
           />
         </Pressable>
       </View>
 
-      <View style={{ paddingTop: 8, paddingBottom: 30 }}>
+      {/* Hero Section */}
+      <View style={{ paddingTop: 10, paddingBottom: 24, alignItems: "center" }}>
+        {/* Badge */}
         <View
           style={{
-            alignSelf: "flex-start",
             flexDirection: "row",
             alignItems: "center",
-            gap: 7,
+            gap: 6,
             borderRadius: 30,
             backgroundColor: theme.soft,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            marginBottom: 18,
+            borderWidth: 1,
+            borderColor: theme.border,
+            paddingHorizontal: 14,
+            paddingVertical: 7,
+            marginBottom: 20,
           }}
         >
-          <Ionicons
-            name="shield-checkmark-outline"
-            size={16}
-            color={theme.brand}
-          />
-          <Text style={{ color: theme.brand, fontSize: 12, fontWeight: "800" }}>
-            Your personal space
+          <Ionicons name="sparkles" size={14} color={theme.brand} />
+          <Text style={{ color: theme.brand, fontSize: 12, fontWeight: "700" }}>
+            Database-Level Encryption
           </Text>
         </View>
+
+        {/* Main Title */}
         <Text
           style={{
             color: theme.text,
-            fontSize: 37,
-            lineHeight: 44,
+            fontSize: 32,
+            lineHeight: 38,
             fontWeight: "900",
-            letterSpacing: -1.1,
+            textAlign: "center",
+            letterSpacing: -0.8,
           }}
         >
-          Your private notes, everywhere.
+          Where your personal notes stay{"\n"}
+          <Text style={{ color: theme.brand }}>truly confidential.</Text>
         </Text>
+
+        {/* Subtitle */}
         <Text
           style={{
             color: theme.muted,
             fontSize: 15,
-            lineHeight: 24,
-            marginTop: 15,
+            lineHeight: 22,
+            textAlign: "center",
+            marginTop: 16,
+            paddingHorizontal: 10,
           }}
         >
-          Capture ideas, organize your thoughts, and keep the important things
-          in one secure place with KeepSecret.
+          Not even database administrators can read your thoughts. Pure privacy,
+          encrypted client-side, stored securely.
         </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onGetStarted}
-          style={{
-            minHeight: 52,
-            borderRadius: 15,
-            backgroundColor: theme.brand,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 9,
-            marginTop: 25,
-          }}
-        >
-          <Text style={{ color: "#fff", fontWeight: "900", fontSize: 15 }}>
-            Get started
-          </Text>
-          <Ionicons name="arrow-forward" size={19} color="#fff" />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onSignIn}
-          style={{
-            minHeight: 50,
-            borderRadius: 15,
-            borderWidth: 1,
-            borderColor: theme.border,
-            backgroundColor: theme.card,
-            alignItems: "center",
-            justifyContent: "center",
-            marginTop: 10,
-          }}
-        >
-          <Text style={{ color: theme.text, fontWeight: "800" }}>
-            I already have an account
-          </Text>
-        </Pressable>
+
+        {/* Action Buttons */}
+        <View style={{ width: "100%", marginTop: 28, gap: 12 }}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onGetStarted}
+            style={{
+              minHeight: 52,
+              borderRadius: 16,
+              backgroundColor: theme.brand,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              shadowColor: theme.brand,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.25,
+              shadowRadius: 8,
+              elevation: 4,
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 15 }}>
+              Create Encrypted Vault
+            </Text>
+            <Ionicons name="arrow-forward" size={18} color="#fff" />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            onPress={onSignIn}
+            style={{
+              minHeight: 52,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: theme.border,
+              backgroundColor: theme.card,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text
+              style={{ color: theme.text, fontWeight: "700", fontSize: 15 }}
+            >
+              Access Vault
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
-      <Text
+      {/* Interactive Note App Simulation Box (Mobile Mock) */}
+      <View
         style={{
-          color: theme.text,
-          fontSize: 22,
-          fontWeight: "900",
-          marginBottom: 14,
+          marginVertical: 24,
+          borderRadius: 20,
+          backgroundColor: "#0f172a",
+          borderWidth: 1,
+          borderColor: "#1e293b",
+          padding: 16,
         }}
       >
-        Everything you need to stay organized
-      </Text>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 12,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: "#ef4444",
+              }}
+            />
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: "#eab308",
+              }}
+            />
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: "#22c55e",
+              }}
+            />
+          </View>
+          <Text
+            style={{ color: "#64748b", fontSize: 11, fontFamily: "monospace" }}
+          >
+            keepsecret/notes
+          </Text>
+        </View>
+
+        <View
+          style={{
+            backgroundColor: "#020617",
+            padding: 12,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: "#1e293b",
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 8,
+            }}
+          >
+            <Text style={{ color: "#f8fafc", fontSize: 13, fontWeight: "700" }}>
+              🔒 Secret Meeting Notes
+            </Text>
+            <View
+              style={{
+                backgroundColor: "rgba(16, 185, 129, 0.1)",
+                paddingHorizontal: 6,
+                paddingVertical: 2,
+                borderRadius: 6,
+              }}
+            >
+              <Text
+                style={{ color: "#34d399", fontSize: 9, fontWeight: "600" }}
+              >
+                Encrypted
+              </Text>
+            </View>
+          </View>
+          <Text
+            style={{
+              color: "#94a3b8",
+              fontSize: 12,
+              fontFamily: "monospace",
+              lineHeight: 18,
+            }}
+          >
+            Project KeepSecret: Zero-knowledge architecture implementation in
+            progress...
+          </Text>
+        </View>
+      </View>
+
+      {/* Feature Section Header */}
+      <View style={{ marginTop: 20, marginBottom: 20, alignItems: "center" }}>
+        <Text
+          style={{
+            color: theme.text,
+            fontSize: 24,
+            fontWeight: "900",
+            textAlign: "center",
+            letterSpacing: -0.5,
+          }}
+        >
+          Built like a fortress
+        </Text>
+        <Text
+          style={{
+            color: theme.muted,
+            fontSize: 13,
+            textAlign: "center",
+            marginTop: 4,
+          }}
+        >
+          Designed for developers, writers, and privacy maximalists.
+        </Text>
+      </View>
+
+      {/* Feature Cards Grid */}
       {features.map((feature) => (
         <View
           key={feature.title}
           style={{
-            flexDirection: "row",
-            gap: 14,
-            padding: 16,
-            borderRadius: 17,
+            padding: 18,
+            borderRadius: 20,
             borderWidth: 1,
             borderColor: theme.border,
             backgroundColor: theme.card,
-            marginBottom: 11,
+            marginBottom: 14,
           }}
         >
           <View
@@ -198,38 +348,43 @@ export function HomeScreen({
               backgroundColor: theme.soft,
               alignItems: "center",
               justifyContent: "center",
+              marginBottom: 14,
             }}
           >
             <Ionicons name={feature.icon} size={22} color={theme.brand} />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text
-              style={{ color: theme.text, fontSize: 15, fontWeight: "900" }}
-            >
-              {feature.title}
-            </Text>
-            <Text
-              style={{
-                color: theme.muted,
-                fontSize: 13,
-                lineHeight: 20,
-                marginTop: 5,
-              }}
-            >
-              {feature.body}
-            </Text>
-          </View>
+          <Text
+            style={{
+              color: theme.text,
+              fontSize: 16,
+              fontWeight: "800",
+              marginBottom: 6,
+            }}
+          >
+            {feature.title}
+          </Text>
+          <Text
+            style={{
+              color: theme.muted,
+              fontSize: 13,
+              lineHeight: 20,
+            }}
+          >
+            {feature.body}
+          </Text>
         </View>
       ))}
+
+      {/* Footer */}
       <Text
         style={{
           color: theme.muted,
           textAlign: "center",
           fontSize: 11,
-          marginTop: 16,
+          marginTop: 24,
         }}
       >
-        Keep your thoughts together with KeepSecret.
+        © {new Date().getFullYear()} KeepSecret. All rights reserved.
       </Text>
     </ScrollView>
   );
