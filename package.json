@@ -12,7 +12,8 @@
     "web": "expo start --web",
     "build:aab": "eas build --platform android --profile production",
     "check": "npm run typecheck",
-    "build:dev-apk": "eas build --platform android --profile development"
+    "build:dev-apk": "eas build --platform android --profile development",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@react-native-cookies/cookies": "^6.2.1",

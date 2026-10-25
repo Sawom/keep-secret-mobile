@@ -115,10 +115,17 @@ export function NotesScreen({
               )
             }
           >
-            <Text style={{ color: theme.brand, fontWeight: "800" }}>
+            <Text
+              style={{
+                color: theme.brand,
+                fontWeight: "800",
+                marginHorizontal: 15,
+              }}
+            >
               Select all
             </Text>
           </Pressable>
+
           <Pressable
             onPress={() => onBulkDelete(selected)}
             disabled={!selected.length}
@@ -127,6 +134,7 @@ export function NotesScreen({
               borderRadius: 10,
               paddingHorizontal: 12,
               paddingVertical: 9,
+              marginVertical: 9,
             }}
           >
             <Text style={{ color: "#fff", fontWeight: "800" }}>
