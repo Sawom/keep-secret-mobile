@@ -1,14 +1,227 @@
-import React from 'react';
-import { Pressable, Text, View } from 'react-native';
-import type { Note, Notebook } from '../types';
-import type { Theme } from '../theme/theme';
+import React from "react";
+import { Pressable, Text, View } from "react-native";
+import type { Note, Notebook } from "../types";
+import type { Theme } from "../theme/theme";
 
-export function NoteCard({note,theme,onOpen,onTrash,onPin,selected,onSelect,showActions=true,onMoveUp,onMoveDown}:{note:Note;theme:Theme;onOpen:()=>void;onTrash:()=>void;onPin:()=>void;selected?:boolean;onSelect?:()=>void;showActions?:boolean;onMoveUp?:()=>void;onMoveDown?:()=>void}) {
-  return <Pressable onPress={onSelect??onOpen} style={{backgroundColor:note.color && note.color!=='#FFFFFF' ? note.color : theme.card,borderColor:selected?theme.brand:theme.border,borderWidth:selected?2:1,borderRadius:17,padding:15,marginBottom:11}}>
-    <View style={{flexDirection:'row',alignItems:'flex-start',gap:10}}><View style={{flex:1}}><Text numberOfLines={2} style={{fontSize:15,fontWeight:'800',color:note.color==='#1F2937'?'#F9FAFB':theme.text}}>{note.title||'Untitled note'}</Text><Text numberOfLines={4} style={{fontSize:13,lineHeight:19,color:note.color==='#1F2937'?'#D1D5DB':theme.muted,marginTop:7}}>{note.content||'No content yet'}</Text></View>{onSelect&&<Text style={{color:theme.brand,fontWeight:'900'}}>{selected?'✓':'○'}</Text>}</View>
-    <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginTop:13,gap:8}}><Text style={{fontSize:10,color:theme.muted,flex:1}}>{note.offlineOnly?'● Saved offline':note.updatedAt?new Date(note.updatedAt).toLocaleDateString():'Local note'}</Text>{showActions&&<View style={{flexDirection:'row',gap:13}}>{onMoveUp&&<Pressable hitSlop={8} onPress={(e)=>{e.stopPropagation();onMoveUp()}}><Text style={{color:theme.muted,fontWeight:'900'}}>↑</Text></Pressable>}{onMoveDown&&<Pressable hitSlop={8} onPress={(e)=>{e.stopPropagation();onMoveDown()}}><Text style={{color:theme.muted,fontWeight:'900'}}>↓</Text></Pressable>}<Pressable hitSlop={8} onPress={(e)=>{e.stopPropagation();onPin()}}><Text style={{color:note.isPinned?theme.brand:theme.muted,fontWeight:'800'}}>{note.isPinned?'Pinned':'Pin'}</Text></Pressable><Pressable hitSlop={8} onPress={(e)=>{e.stopPropagation();onTrash()}}><Text style={{color:theme.danger,fontWeight:'800'}}>Trash</Text></Pressable></View>}</View>
-  </Pressable>;
+export function NoteCard({
+  note,
+  theme,
+  onOpen,
+  onTrash,
+  onPin,
+  selected,
+  onSelect,
+  showActions = true,
+  onMoveUp,
+  onMoveDown,
+}: {
+  note: Note;
+  theme: Theme;
+  onOpen: () => void;
+  onTrash: () => void;
+  onPin: () => void;
+  selected?: boolean;
+  onSelect?: () => void;
+  showActions?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onSelect ?? onOpen}
+      style={{
+        backgroundColor:
+          note.color && note.color !== "#FFFFFF" ? note.color : theme.card,
+        borderColor: selected ? theme.brand : theme.border,
+        borderWidth: selected ? 2 : 1,
+        borderRadius: 17,
+        padding: 15,
+        marginBottom: 11,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <Text
+            numberOfLines={2}
+            style={{
+              fontSize: 15,
+              fontWeight: "800",
+              color: note.color === "#1F2937" ? "#F9FAFB" : theme.text,
+            }}
+          >
+            {note.title || "Untitled note"}
+          </Text>
+          <Text
+            numberOfLines={4}
+            style={{
+              fontSize: 13,
+              lineHeight: 19,
+              color: note.color === "#1F2937" ? "#D1D5DB" : theme.muted,
+              marginTop: 7,
+            }}
+          >
+            {note.content || "No content yet"}
+          </Text>
+        </View>
+        {onSelect && (
+          <Text style={{ color: theme.brand, fontWeight: "900" }}>
+            {selected ? "✓" : "○"}
+          </Text>
+        )}
+      </View>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginTop: 13,
+          gap: 8,
+        }}
+      >
+        <Text style={{ fontSize: 10, color: theme.muted, flex: 1 }}>
+          {note.offlineOnly
+            ? "● Saved offline"
+            : note.updatedAt
+              ? new Date(note.updatedAt).toLocaleDateString()
+              : "Local note"}
+        </Text>
+        {showActions && (
+          <View style={{ flexDirection: "row", gap: 13 }}>
+            {onMoveUp && (
+              <Pressable
+                hitSlop={8}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onMoveUp();
+                }}
+              >
+                <Text style={{ color: theme.muted, fontWeight: "900" }}>↑</Text>
+              </Pressable>
+            )}
+            {onMoveDown && (
+              <Pressable
+                hitSlop={8}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onMoveDown();
+                }}
+              >
+                <Text style={{ color: theme.muted, fontWeight: "900" }}>↓</Text>
+              </Pressable>
+            )}
+            <Pressable
+              hitSlop={8}
+              onPress={(e) => {
+                e.stopPropagation();
+                onPin();
+              }}
+            >
+              <Text
+                style={{
+                  color: note.isPinned ? theme.brand : theme.muted,
+                  fontWeight: "800",
+                }}
+              >
+                {note.isPinned ? "Pinned" : "Pin"}
+              </Text>
+            </Pressable>
+            <Pressable
+              hitSlop={8}
+              onPress={(e) => {
+                e.stopPropagation();
+                onTrash();
+              }}
+            >
+              <Text style={{ color: theme.danger, fontWeight: "800" }}>
+                Trash
+              </Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
+    </Pressable>
+  );
 }
-export function NotebookCard({notebook,theme,onOpen,onEdit,onTrash,onMoveUp,onMoveDown}:{notebook:Notebook;theme:Theme;onOpen:()=>void;onEdit:()=>void;onTrash:()=>void;onMoveUp?:()=>void;onMoveDown?:()=>void}) {
- return <Pressable onPress={onOpen} style={{backgroundColor:theme.card,borderColor:theme.border,borderWidth:1,borderRadius:17,padding:13,marginBottom:10,flexDirection:'row',alignItems:'center',gap:12}}><View style={{width:45,height:45,borderRadius:14,backgroundColor:notebook.color||theme.brand,alignItems:'center',justifyContent:'center'}}><Text style={{fontSize:22,color:'#fff'}}>▤</Text></View><View style={{flex:1}}><Text style={{fontSize:15,fontWeight:'800',color:theme.text}}>{notebook.title}</Text><Text numberOfLines={2} style={{fontSize:11,color:theme.muted,marginTop:4}}>{notebook.description||'Notebook'}{notebook.offlineOnly?' · Offline':''}</Text></View><View style={{gap:8,alignItems:'flex-end'}}>{onMoveUp&&<Pressable onPress={onMoveUp} hitSlop={8}><Text style={{color:theme.muted,fontWeight:'900'}}>↑</Text></Pressable>}{onMoveDown&&<Pressable onPress={onMoveDown} hitSlop={8}><Text style={{color:theme.muted,fontWeight:'900'}}>↓</Text></Pressable>}<Pressable onPress={(e)=>{e.stopPropagation();onEdit()}} hitSlop={8}><Text style={{color:theme.brand,fontWeight:'800'}}>Edit</Text></Pressable><Pressable onPress={onTrash} hitSlop={8}><Text style={{color:theme.danger,fontWeight:'800'}}>Trash</Text></Pressable></View></Pressable>;
+export function NotebookCard({
+  notebook,
+  theme,
+  onOpen,
+  onEdit,
+  onTrash,
+  onMoveUp,
+  onMoveDown,
+}: {
+  notebook: Notebook;
+  theme: Theme;
+  onOpen: () => void;
+  onEdit: () => void;
+  onTrash: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onOpen}
+      style={{
+        backgroundColor: theme.card,
+        borderColor: theme.border,
+        borderWidth: 1,
+        borderRadius: 17,
+        padding: 13,
+        marginBottom: 10,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+      }}
+    >
+      <View
+        style={{
+          width: 45,
+          height: 45,
+          borderRadius: 14,
+          backgroundColor: notebook.color || theme.brand,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text style={{ fontSize: 22, color: "#fff" }}>▤</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 15, fontWeight: "800", color: theme.text }}>
+          {notebook.title}
+        </Text>
+        <Text
+          numberOfLines={2}
+          style={{ fontSize: 11, color: theme.muted, marginTop: 4 }}
+        >
+          {notebook.description || "Notebook"}
+          {notebook.offlineOnly ? " · Offline" : ""}
+        </Text>
+      </View>
+      <View style={{ gap: 8, alignItems: "flex-end" }}>
+        {onMoveUp && (
+          <Pressable onPress={onMoveUp} hitSlop={8}>
+            <Text style={{ color: theme.muted, fontWeight: "900" }}>↑</Text>
+          </Pressable>
+        )}
+        {onMoveDown && (
+          <Pressable onPress={onMoveDown} hitSlop={8}>
+            <Text style={{ color: theme.muted, fontWeight: "900" }}>↓</Text>
+          </Pressable>
+        )}
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          hitSlop={8}
+        >
+          <Text style={{ color: theme.brand, fontWeight: "800" }}>Edit</Text>
+        </Pressable>
+        <Pressable onPress={onTrash} hitSlop={8}>
+          <Text style={{ color: theme.danger, fontWeight: "800" }}>Trash</Text>
+        </Pressable>
+      </View>
+    </Pressable>
+  );
 }

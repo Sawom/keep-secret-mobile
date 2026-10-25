@@ -1,9 +1,147 @@
-import React from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
-import { Button, EmptyState, ScreenHeader } from '../components/Controls';
-import type { Note, Notebook } from '../types';
-import type { Theme } from '../theme/theme';
-export function TrashScreen({ theme, notes, notebooks, onRestoreNote, onDeleteNote, onRestoreNotebook, onDeleteNotebook, onEmptyTrash }: { theme: Theme; notes: Note[]; notebooks: Notebook[]; onRestoreNote: (n: Note) => void; onDeleteNote: (n: Note) => void; onRestoreNotebook: (n: Notebook) => void; onDeleteNotebook: (n: Notebook) => void; onEmptyTrash: () => void }) {
-    const [kind, setKind] = React.useState<'notes' | 'notebooks'>('notes'); const items = kind === 'notes' ? notes : notebooks;
-    return <View style={{ flex: 1 }}><ScreenHeader theme={theme} eyebrow="Recovery" title="Trash" subtitle={`${notes.length} notes · ${notebooks.length} notebooks`} right={<Pressable onPress={onEmptyTrash}><Text style={{ color: theme.danger, fontWeight: '900' }}>Empty</Text></Pressable>} /><View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 13 }}>{(['notes', 'notebooks'] as const).map(k => <Pressable key={k} onPress={() => setKind(k)} style={{ flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: kind === k ? theme.brand : theme.card, borderWidth: 1, borderColor: kind === k ? theme.brand : theme.border }}><Text style={{ textAlign: 'center', fontWeight: '800', color: kind === k ? '#fff' : theme.text }}>{k === 'notes' ? 'Notes' : 'Notebooks'}</Text></Pressable>)}</View>{items.length === 0 ? <EmptyState theme={theme} title="Trash is empty" body="Items you move to Trash will appear here. You can restore them or permanently delete them." /> : <FlatList data={items as any[]} keyExtractor={x => x.id} contentContainerStyle={{ padding: 16 }} renderItem={({ item }) => <View style={{ padding: 15, marginBottom: 10, borderRadius: 15, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.card }}><Text style={{ fontSize: 15, fontWeight: '800', color: theme.text }}>{item.title}</Text><Text numberOfLines={2} style={{ fontSize: 12, color: theme.muted, marginTop: 5 }}>{kind === 'notes' ? item.content : (item.description || 'Notebook')}</Text><View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 18, marginTop: 13 }}><Pressable onPress={() => kind === 'notes' ? onRestoreNote(item) : onRestoreNotebook(item)}><Text style={{ fontWeight: '800', color: theme.brand }}>Restore</Text></Pressable><Pressable onPress={() => kind === 'notes' ? onDeleteNote(item) : onDeleteNotebook(item)}><Text style={{ fontWeight: '800', color: theme.danger }}>Delete forever</Text></Pressable></View></View>} />}</View>;
+import React from "react";
+import { FlatList, Pressable, Text, View } from "react-native";
+import { Button, EmptyState, ScreenHeader } from "../components/Controls";
+import type { Note, Notebook } from "../types";
+import type { Theme } from "../theme/theme";
+export function TrashScreen({
+  theme,
+  notes,
+  notebooks,
+  onRestoreNote,
+  onDeleteNote,
+  onRestoreNotebook,
+  onDeleteNotebook,
+  onEmptyTrash,
+}: {
+  theme: Theme;
+  notes: Note[];
+  notebooks: Notebook[];
+  onRestoreNote: (n: Note) => void;
+  onDeleteNote: (n: Note) => void;
+  onRestoreNotebook: (n: Notebook) => void;
+  onDeleteNotebook: (n: Notebook) => void;
+  onEmptyTrash: () => void;
+}) {
+  const [kind, setKind] = React.useState<"notes" | "notebooks">("notes");
+  const items = kind === "notes" ? notes : notebooks;
+  return (
+    <View style={{ flex: 1 }}>
+      <ScreenHeader
+        theme={theme}
+        eyebrow="Recovery"
+        title="Trash"
+        subtitle={`${notes.length} notes · ${notebooks.length} notebooks`}
+        right={
+          <Pressable onPress={onEmptyTrash}>
+            <Text style={{ color: theme.danger, fontWeight: "900" }}>
+              Empty
+            </Text>
+          </Pressable>
+        }
+      />
+      <View
+        style={{
+          flexDirection: "row",
+          gap: 8,
+          paddingHorizontal: 16,
+          paddingTop: 13,
+        }}
+      >
+        {(["notes", "notebooks"] as const).map((k) => (
+          <Pressable
+            key={k}
+            onPress={() => setKind(k)}
+            style={{
+              flex: 1,
+              paddingVertical: 10,
+              borderRadius: 12,
+              backgroundColor: kind === k ? theme.brand : theme.card,
+              borderWidth: 1,
+              borderColor: kind === k ? theme.brand : theme.border,
+            }}
+          >
+            <Text
+              style={{
+                textAlign: "center",
+                fontWeight: "800",
+                color: kind === k ? "#fff" : theme.text,
+              }}
+            >
+              {k === "notes" ? "Notes" : "Notebooks"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {items.length === 0 ? (
+        <EmptyState
+          theme={theme}
+          title="Trash is empty"
+          body="Items you move to Trash will appear here. You can restore them or permanently delete them."
+        />
+      ) : (
+        <FlatList
+          data={items as any[]}
+          keyExtractor={(x) => x.id}
+          contentContainerStyle={{ padding: 16 }}
+          renderItem={({ item }) => (
+            <View
+              style={{
+                padding: 15,
+                marginBottom: 10,
+                borderRadius: 15,
+                borderWidth: 1,
+                borderColor: theme.border,
+                backgroundColor: theme.card,
+              }}
+            >
+              <Text
+                style={{ fontSize: 15, fontWeight: "800", color: theme.text }}
+              >
+                {item.title}
+              </Text>
+              <Text
+                numberOfLines={2}
+                style={{ fontSize: 12, color: theme.muted, marginTop: 5 }}
+              >
+                {kind === "notes"
+                  ? item.content
+                  : item.description || "Notebook"}
+              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "flex-end",
+                  gap: 18,
+                  marginTop: 13,
+                }}
+              >
+                <Pressable
+                  onPress={() =>
+                    kind === "notes"
+                      ? onRestoreNote(item)
+                      : onRestoreNotebook(item)
+                  }
+                >
+                  <Text style={{ fontWeight: "800", color: theme.brand }}>
+                    Restore
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    kind === "notes"
+                      ? onDeleteNote(item)
+                      : onDeleteNotebook(item)
+                  }
+                >
+                  <Text style={{ fontWeight: "800", color: theme.danger }}>
+                    Delete forever
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+        />
+      )}
+    </View>
+  );
 }

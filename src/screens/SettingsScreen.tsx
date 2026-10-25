@@ -1,17 +1,333 @@
-import React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { Button, Field, ScreenHeader } from '../components/Controls';
-import type { Theme } from '../theme/theme';
-import type { User } from '../types';
-type Health = { generatedAt: string; counts: Record<string, number>; api: { windowHours: number; sampleCount: number; totalRequests: number; averageResponseTimeMs: number; errorRequests: number; errorRatePercent: number; endpoints: { endpoint: string; requests: number; averageResponseTimeMs: number; errors: number; statuses: Record<string, number> }[]; note: string } };
-export function SettingsScreen({ theme, user, isDark, setIsDark, online, syncing, onSync, onLogout, onSaveProfile, profileName, setProfileName, profileBusy, health, onLoadHealth, healthLoading, healthError }: { theme: Theme; user: User; isDark: boolean; setIsDark: (v: boolean) => void; online: boolean; syncing: boolean; onSync: () => void; onLogout: () => void; onSaveProfile: () => void; profileName: string; setProfileName: (v: string) => void; profileBusy: boolean; health: Health | null; onLoadHealth: () => void; healthLoading: boolean; healthError: string }) {
-    return (
-    <View style={{ flex: 1 }}><ScreenHeader theme={theme} eyebrow="Preferences" title="Settings" subtitle="Account, appearance and sync" /><ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30, gap: 12 }}><View style={{ padding: 16, borderRadius: 17, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.card, flexDirection: 'row', alignItems: 'center', gap: 13 }}><View style={{ width: 50, height: 50, borderRadius: 17, backgroundColor: theme.brand, alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 22, fontWeight: '900', color: '#fff' }}>{(user.name || user.fullName || user.email).slice(0, 1).toUpperCase()}</Text></View><View style={{ flex: 1 }}><Text style={{ fontSize: 16, fontWeight: '900', color: theme.text }}>{user.name || user.fullName || 'KeepSecret user'}</Text><Text style={{ fontSize: 12, color: theme.muted, marginTop: 4 }}>{user.email}</Text><Text style={{ fontSize: 10, color: theme.brand, marginTop: 5 }}>{user.role || 'USER'}</Text></View></View>
-        <View style={{ padding: 15, borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.card }}><Text style={{ fontSize: 15, fontWeight: '900', color: theme.text }}>Profile</Text><Field label="Full name" value={profileName} onChangeText={setProfileName} theme={theme} autoCapitalize="words" /><Button title="Save profile" theme={theme} onPress={onSaveProfile} loading={profileBusy} /></View>
-        <View style={{ padding: 15, borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.card, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><View style={{ flex: 1, marginRight: 12 }}><Text style={{ fontSize: 15, fontWeight: '900', color: theme.text }}>Appearance</Text><Text style={{ fontSize: 12, color: theme.muted, marginTop: 4 }}>Use {isDark ? 'light' : 'dark'} theme</Text></View><Pressable onPress={() => setIsDark(!isDark)} style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.brand }}><Text style={{ color: '#fff', fontWeight: '900' }}>{isDark ? '☀ Light' : '☾ Dark'}</Text></Pressable></View>
-        <View style={{ padding: 15, borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.card }}><Text style={{ fontSize: 15, fontWeight: '900', color: theme.text }}>Offline & sync</Text><Text style={{ fontSize: 12, color: theme.muted, marginTop: 5 }}>Connection: {online ? 'Online' : 'Offline'} · {syncing ? 'Sync in progress' : 'Ready'}</Text><Text style={{ fontSize: 11, lineHeight: 17, color: theme.muted, marginTop: 5 }}>Notes are encrypted in the local database. Pending changes sync when connectivity returns.</Text><Button title={syncing ? 'Syncing…' : 'Sync now'} theme={theme} onPress={onSync} loading={syncing} disabled={!online} /></View>
-        {user.role === 'ADMIN' && <View style={{ padding: 15, borderRadius: 16, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.card }}><View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><Text style={{ fontSize: 15, fontWeight: '900', color: theme.text }}>Application health</Text><Pressable onPress={onLoadHealth}><Text style={{ color: theme.brand, fontWeight: '800' }}>Refresh</Text></Pressable></View>{healthLoading ? <ActivityIndicator color={theme.brand} style={{ margin: 15 }} /> : healthError ? <Text style={{ color: theme.danger, marginTop: 8 }}>{healthError}</Text> : health ? <><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>{[['Users', health.counts.totalUsers], ['Active notes', health.counts.activeNotes], ['Notebooks', health.counts.activeNotebooks], ['API requests', health.api.totalRequests]].map(([k, v]) => <View key={String(k)} style={{ padding: 10, borderRadius: 11, backgroundColor: theme.bg, minWidth: '45%', flexGrow: 1 }}><Text style={{ fontSize: 11, color: theme.muted }}>{k}</Text><Text style={{ fontSize: 20, fontWeight: '900', color: theme.text }}>{v}</Text></View>)}</View><Text style={{ fontSize: 11, color: theme.muted, marginTop: 10 }}>{health.api.averageResponseTimeMs} ms average response · {health.api.errorRatePercent}% error rate</Text>{health.api.endpoints.slice(0, 8).map(e => <Text key={e.endpoint} numberOfLines={1} style={{ fontSize: 10, color: theme.muted, marginTop: 6 }}>{e.endpoint} · {e.requests} requests · {e.averageResponseTimeMs} ms</Text>)}</> : <Button title="Load report" theme={theme} onPress={onLoadHealth} />}</View>}
-        <Button title="Log out" theme={theme} onPress={onLogout} danger /><Text style={{ fontSize: 11, lineHeight: 17, color: theme.muted, textAlign: 'center' }}>KeepSecret never stores access or refresh tokens in AsyncStorage. Logging out clears this device's private cache.</Text>
-    </ScrollView>
-    </View>);
+import React from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
+import { Button, Field, ScreenHeader } from "../components/Controls";
+import type { Theme } from "../theme/theme";
+import type { User } from "../types";
+type Health = {
+  generatedAt: string;
+  counts: Record<string, number>;
+  api: {
+    windowHours: number;
+    sampleCount: number;
+    totalRequests: number;
+    averageResponseTimeMs: number;
+    errorRequests: number;
+    errorRatePercent: number;
+    endpoints: {
+      endpoint: string;
+      requests: number;
+      averageResponseTimeMs: number;
+      errors: number;
+      statuses: Record<string, number>;
+    }[];
+    note: string;
+  };
+};
+export function SettingsScreen({
+  theme,
+  user,
+  isDark,
+  setIsDark,
+  online,
+  syncing,
+  onSync,
+  onLogout,
+  onSaveProfile,
+  profileName,
+  setProfileName,
+  profileBusy,
+  health,
+  onLoadHealth,
+  healthLoading,
+  healthError,
+}: {
+  theme: Theme;
+  user: User;
+  isDark: boolean;
+  setIsDark: (v: boolean) => void;
+  online: boolean;
+  syncing: boolean;
+  onSync: () => void;
+  onLogout: () => void;
+  onSaveProfile: () => void;
+  profileName: string;
+  setProfileName: (v: string) => void;
+  profileBusy: boolean;
+  health: Health | null;
+  onLoadHealth: () => void;
+  healthLoading: boolean;
+  healthError: string;
+}) {
+  return (
+    <View style={{ flex: 1 }}>
+      <ScreenHeader
+        theme={theme}
+        eyebrow="Preferences"
+        title="Settings"
+        subtitle="Account, appearance and sync"
+      />
+      <ScrollView
+        contentContainerStyle={{ padding: 16, paddingBottom: 30, gap: 12 }}
+      >
+        <View
+          style={{
+            padding: 16,
+            borderRadius: 17,
+            borderWidth: 1,
+            borderColor: theme.border,
+            backgroundColor: theme.card,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 13,
+          }}
+        >
+          <View
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 17,
+              backgroundColor: theme.brand,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ fontSize: 22, fontWeight: "900", color: "#fff" }}>
+              {(user.name || user.fullName || user.email)
+                .slice(0, 1)
+                .toUpperCase()}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{ fontSize: 16, fontWeight: "900", color: theme.text }}
+            >
+              {user.name || user.fullName || "KeepSecret user"}
+            </Text>
+            <Text style={{ fontSize: 12, color: theme.muted, marginTop: 4 }}>
+              {user.email}
+            </Text>
+            <Text style={{ fontSize: 10, color: theme.brand, marginTop: 5 }}>
+              {user.role || "USER"}
+            </Text>
+          </View>
+        </View>
+        <View
+          style={{
+            padding: 15,
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: theme.border,
+            backgroundColor: theme.card,
+          }}
+        >
+          <Text style={{ fontSize: 15, fontWeight: "900", color: theme.text }}>
+            Profile
+          </Text>
+          <Field
+            label="Full name"
+            value={profileName}
+            onChangeText={setProfileName}
+            theme={theme}
+            autoCapitalize="words"
+          />
+          <Button
+            title="Save profile"
+            theme={theme}
+            onPress={onSaveProfile}
+            loading={profileBusy}
+          />
+        </View>
+        <View
+          style={{
+            padding: 15,
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: theme.border,
+            backgroundColor: theme.card,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <Text
+              style={{ fontSize: 15, fontWeight: "900", color: theme.text }}
+            >
+              Appearance
+            </Text>
+            <Text style={{ fontSize: 12, color: theme.muted, marginTop: 4 }}>
+              Use {isDark ? "light" : "dark"} theme
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => setIsDark(!isDark)}
+            style={{
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderRadius: 12,
+              backgroundColor: theme.brand,
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "900" }}>
+              {isDark ? "☀ Light" : "☾ Dark"}
+            </Text>
+          </Pressable>
+        </View>
+        <View
+          style={{
+            padding: 15,
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: theme.border,
+            backgroundColor: theme.card,
+          }}
+        >
+          <Text style={{ fontSize: 15, fontWeight: "900", color: theme.text }}>
+            Offline & sync
+          </Text>
+          <Text style={{ fontSize: 12, color: theme.muted, marginTop: 5 }}>
+            Connection: {online ? "Online" : "Offline"} ·{" "}
+            {syncing ? "Sync in progress" : "Ready"}
+          </Text>
+          <Text
+            style={{
+              fontSize: 11,
+              lineHeight: 17,
+              color: theme.muted,
+              marginTop: 5,
+            }}
+          >
+            Notes are encrypted in the local database. Pending changes sync when
+            connectivity returns.
+          </Text>
+          <Button
+            title={syncing ? "Syncing…" : "Sync now"}
+            theme={theme}
+            onPress={onSync}
+            loading={syncing}
+            disabled={!online}
+          />
+        </View>
+        {user.role === "ADMIN" && (
+          <View
+            style={{
+              padding: 15,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: theme.border,
+              backgroundColor: theme.card,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{ fontSize: 15, fontWeight: "900", color: theme.text }}
+              >
+                Application health
+              </Text>
+              <Pressable onPress={onLoadHealth}>
+                <Text style={{ color: theme.brand, fontWeight: "800" }}>
+                  Refresh
+                </Text>
+              </Pressable>
+            </View>
+            {healthLoading ? (
+              <ActivityIndicator color={theme.brand} style={{ margin: 15 }} />
+            ) : healthError ? (
+              <Text style={{ color: theme.danger, marginTop: 8 }}>
+                {healthError}
+              </Text>
+            ) : health ? (
+              <>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 8,
+                    marginTop: 12,
+                  }}
+                >
+                  {[
+                    ["Users", health.counts.totalUsers],
+                    ["Active notes", health.counts.activeNotes],
+                    ["Notebooks", health.counts.activeNotebooks],
+                    ["API requests", health.api.totalRequests],
+                  ].map(([k, v]) => (
+                    <View
+                      key={String(k)}
+                      style={{
+                        padding: 10,
+                        borderRadius: 11,
+                        backgroundColor: theme.bg,
+                        minWidth: "45%",
+                        flexGrow: 1,
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, color: theme.muted }}>
+                        {k}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 20,
+                          fontWeight: "900",
+                          color: theme.text,
+                        }}
+                      >
+                        {v}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                <Text
+                  style={{ fontSize: 11, color: theme.muted, marginTop: 10 }}
+                >
+                  {health.api.averageResponseTimeMs} ms average response ·{" "}
+                  {health.api.errorRatePercent}% error rate
+                </Text>
+                {health.api.endpoints.slice(0, 8).map((e) => (
+                  <Text
+                    key={e.endpoint}
+                    numberOfLines={1}
+                    style={{ fontSize: 10, color: theme.muted, marginTop: 6 }}
+                  >
+                    {e.endpoint} · {e.requests} requests ·{" "}
+                    {e.averageResponseTimeMs} ms
+                  </Text>
+                ))}
+              </>
+            ) : (
+              <Button
+                title="Load report"
+                theme={theme}
+                onPress={onLoadHealth}
+              />
+            )}
+          </View>
+        )}
+        <Button title="Log out" theme={theme} onPress={onLogout} danger />
+        <Text
+          style={{
+            fontSize: 11,
+            lineHeight: 17,
+            color: theme.muted,
+            textAlign: "center",
+          }}
+        >
+          KeepSecret never stores access or refresh tokens in AsyncStorage.
+          Logging out clears this device's private cache.
+        </Text>
+      </ScrollView>
+    </View>
+  );
 }
