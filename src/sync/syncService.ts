@@ -153,12 +153,30 @@ export async function syncNow() {
           !local.isDeleted
         )
           await removeLocalNotebook(local.id);
-      for (const note of remoteNotes)
-        if (!(await hasPendingFor("note", note.id)))
-          await saveLocalNote(note, false);
-      for (const notebook of remoteNotebooks)
-        if (!(await hasPendingFor("notebook", notebook.id)))
-          await saveLocalNotebook(notebook, false);
+      // Cache independent records concurrently; serial encryption/database writes
+      // made a larger account feel slow after every refresh.
+      const [notesToCache, notebooksToCache] = await Promise.all([
+        Promise.all(
+          remoteNotes.map(async (note) => ({
+            note,
+            pending: await hasPendingFor("note", note.id),
+          })),
+        ),
+        Promise.all(
+          remoteNotebooks.map(async (notebook) => ({
+            notebook,
+            pending: await hasPendingFor("notebook", notebook.id),
+          })),
+        ),
+      ]);
+      await Promise.all([
+        ...notesToCache
+          .filter(({ pending }) => !pending)
+          .map(({ note }) => saveLocalNote(note, false)),
+        ...notebooksToCache
+          .filter(({ pending }) => !pending)
+          .map(({ notebook }) => saveLocalNotebook(notebook, false)),
+      ]);
     } catch (error: any) {
       // Cached data remains available when a pull fails.
       if (!lastError) {
@@ -184,7 +202,6 @@ export async function createOfflineNote(payload: Partial<Note>) {
     id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title: payload.title ?? "",
     content: payload.content ?? "",
-    color: payload.color ?? "#FFFFFF",
     isPinned: payload.isPinned ?? false,
     notebookId: payload.notebookId ?? null,
     isDeleted: false,
@@ -196,7 +213,6 @@ export async function createOfflineNote(payload: Partial<Note>) {
   await enqueue("note", "create", note.id, {
     title: note.title,
     content: note.content,
-    color: note.color,
     isPinned: note.isPinned,
     notebookId: note.notebookId,
   });

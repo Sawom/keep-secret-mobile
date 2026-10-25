@@ -32,7 +32,6 @@ import {
   resolveRemoteId,
   saveLocalNote,
   saveLocalNotebook,
-  pendingOps,
 } from "./src/storage/localDb";
 import {
   createOfflineNote,
@@ -98,6 +97,19 @@ function confirmAction(
     },
   ]);
 }
+function isNetworkUnavailable(error: any) {
+  if (error?.response) return false;
+  const code = String(error?.code ?? "").toUpperCase();
+  const message = String(error?.message ?? "").toLowerCase();
+  return (
+    code === "ERR_NETWORK" ||
+    message.includes("network request failed") ||
+    message.includes("network error") ||
+    message.includes("failed to fetch") ||
+    message.includes("internet connection")
+  );
+}
+
 function AppContent() {
   const [user, setUser] = useState<User | null>(null);
   const [showHome, setShowHome] = useState(true);
@@ -211,14 +223,14 @@ function AppContent() {
       if ((result as any)?.error) {
         console.warn("Pending offline sync issue:", (result as any).error);
       }
-      await refreshServerData();
+      await refreshLocal();
       await pullTrash();
     } catch (e) {
       console.warn("Sync failed", e);
     } finally {
       setSyncing(false);
     }
-  }, [user, online, syncing, refreshServerData, pullTrash]);
+  }, [user, online, syncing, refreshLocal, pullTrash]);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -293,7 +305,7 @@ function AppContent() {
     if (!user || !online) return;
     const refreshFromServer = () => {
       void syncNow()
-        .then(() => refreshServerData())
+        .then(() => refreshLocal())
         .catch((error) => console.warn("Background sync failed", error));
     };
     const interval = setInterval(refreshFromServer, 60_000);
@@ -304,7 +316,7 @@ function AppContent() {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [user?.id, online, refreshServerData]);
+  }, [user?.id, online, refreshLocal]);
   useEffect(() => {
     if (!user) return;
     void pullTrash();
@@ -324,8 +336,7 @@ function AppContent() {
             ? "Your account does not have admin permission on the backend."
             : error?.response?.status
               ? `Health API returned HTTP ${error.response.status}.`
-              : error?.message ||
-                "Please check your internet connection and try again."),
+              : error?.message || "Please check your internet connection and try again."),
       );
     } finally {
       setHealthLoading(false);
@@ -382,23 +393,41 @@ function AppContent() {
     }
 
     setBusy(true);
-    try {
-      const patch = {
-        title: title.trim(),
-        content,
-        notebookId: noteNotebookId,
-      };
-      const payload = {
-        ...patch,
-        isPinned: editing?.isPinned ?? false,
-      };
+    const patch = {
+      title: title.trim(),
+      content,
+      // The note belongs to the notebook only when its editor was opened
+      // from that notebook. Notes created from the Notes tab stay standalone.
+      notebookId: noteNotebookId,
+    };
+    const payload = { ...patch, isPinned: editing?.isPinned ?? false };
 
+    const saveToDeviceQueue = async () => {
+      if (editing) await updateOfflineNote(editing, patch);
+      else await createOfflineNote(payload);
+      await refreshLocal();
+      setEditorVisible(false);
+      setEditing(null);
+      Alert.alert(
+        "Saved offline",
+        "Your note is saved securely on this device and will sync automatically when the connection returns.",
+      );
+    };
+
+    try {
       if (online && (!editing || !editing.id.startsWith("local-"))) {
-        // Online CRUD goes straight to the shared backend. Local encryption or
-        // pending-queue corruption must not block a server-side create/update.
-        const saved = editing
-          ? await dataService.updateNote(editing.id, patch)
-          : await dataService.createNote(payload);
+        let saved: Note;
+        try {
+          saved = editing
+            ? await dataService.updateNote(editing.id, patch)
+            : await dataService.createNote(payload);
+        } catch (error: any) {
+          // If Wi-Fi drops before NetInfo updates, keep the note locally and queue it.
+          // HTTP/API errors are not silently converted into offline saves.
+          if (!isNetworkUnavailable(error)) throw error;
+          await saveToDeviceQueue();
+          return;
+        }
 
         setNotes((current) => {
           const withoutOld = current.filter(
@@ -413,37 +442,24 @@ function AppContent() {
         try {
           await saveLocalNote(saved, false);
         } catch (cacheError) {
-          console.warn(
-            "Note saved remotely; local cache update failed",
-            cacheError,
-          );
+          console.warn("Note saved remotely; local cache update failed", cacheError);
         }
+        // Do not block closing the editor while a full list refresh runs.
         void refreshServerData().catch((error) =>
           console.warn("Could not refresh notes after save", error),
         );
         return;
       }
 
-      // Offline-only create/update remains queued for later synchronization.
-      if (editing) await updateOfflineNote(editing, patch);
-      else await createOfflineNote(payload);
-      setEditorVisible(false);
-      setEditing(null);
-      await refreshLocal();
-      Alert.alert(
-        "Saved offline",
-        "This note is saved on this device and will sync when the server is reachable.",
-      );
-    } catch (e: any) {
-      const raw = e?.response?.data?.message;
+      await saveToDeviceQueue();
+    } catch (error: any) {
+      const raw = error?.response?.data?.message;
       const detail = Array.isArray(raw) ? raw.join(", ") : raw;
       Alert.alert(
         "Could not save note",
-        detail ||
-          e?.message ||
-          "The server did not save this note. Please try again.",
+        detail || error?.message || "The note could not be saved. Your editor is still open; please try again.",
       );
-      // Keep the editor open so the user can correct/retry instead of losing input.
+      // Keep the editor open so its text is never discarded on a failed save.
     } finally {
       setBusy(false);
     }
@@ -573,22 +589,39 @@ function AppContent() {
       Alert.alert("Title required", "Enter a notebook title.");
       return;
     }
-    setBusy(true);
-    try {
-      const patch = {
-        title: notebookTitle.trim(),
-        description: notebookDescription,
-        color: notebookColor,
-      };
-      const payload = { ...patch, icon: editingNotebook?.icon || "book" };
 
-      if (
-        online &&
-        (!editingNotebook || !editingNotebook.id.startsWith("local-"))
-      ) {
-        const saved = editingNotebook
-          ? await dataService.updateNotebook(editingNotebook.id, patch)
-          : await dataService.createNotebook(payload);
+    setBusy(true);
+    const patch = {
+      title: notebookTitle.trim(),
+      description: notebookDescription,
+      color: notebookColor,
+    };
+    const payload = { ...patch, icon: editingNotebook?.icon || "book" };
+
+    const saveToDeviceQueue = async () => {
+      if (editingNotebook) await updateOfflineNotebook(editingNotebook, patch);
+      else await createOfflineNotebook(payload);
+      await refreshLocal();
+      setNotebookEditorVisible(false);
+      setEditingNotebook(null);
+      Alert.alert(
+        "Saved offline",
+        "Your notebook is saved securely on this device and will sync automatically when the connection returns.",
+      );
+    };
+
+    try {
+      if (online && (!editingNotebook || !editingNotebook.id.startsWith("local-"))) {
+        let saved: Notebook;
+        try {
+          saved = editingNotebook
+            ? await dataService.updateNotebook(editingNotebook.id, patch)
+            : await dataService.createNotebook(payload);
+        } catch (error: any) {
+          if (!isNetworkUnavailable(error)) throw error;
+          await saveToDeviceQueue();
+          return;
+        }
 
         setNotebooks((current) => {
           const withoutOld = current.filter(
@@ -605,10 +638,7 @@ function AppContent() {
         try {
           await saveLocalNotebook(saved, false);
         } catch (cacheError) {
-          console.warn(
-            "Notebook saved remotely; local cache update failed",
-            cacheError,
-          );
+          console.warn("Notebook saved remotely; local cache update failed", cacheError);
         }
         void refreshServerData().catch((error) =>
           console.warn("Could not refresh notebooks after save", error),
@@ -616,25 +646,14 @@ function AppContent() {
         return;
       }
 
-      if (editingNotebook) await updateOfflineNotebook(editingNotebook, patch);
-      else await createOfflineNotebook(payload);
-      setNotebookEditorVisible(false);
-      setEditingNotebook(null);
-      await refreshLocal();
-      Alert.alert(
-        "Saved offline",
-        "This notebook is saved on this device and will sync when the server is reachable.",
-      );
-    } catch (e: any) {
-      const raw = e?.response?.data?.message;
+      await saveToDeviceQueue();
+    } catch (error: any) {
+      const raw = error?.response?.data?.message;
       const detail = Array.isArray(raw) ? raw.join(", ") : raw;
       Alert.alert(
         "Could not save notebook",
-        detail ||
-          e?.message ||
-          "The server did not save this notebook. Please try again.",
+        detail || error?.message || "The notebook could not be saved. Your editor is still open; please try again.",
       );
-      // Keep the editor open so the user can correct/retry instead of losing input.
     } finally {
       setBusy(false);
     }
@@ -812,7 +831,7 @@ function AppContent() {
         setAuthValues(emptyAuth);
         if (online) {
           await syncNow();
-          await refreshServerData();
+          await refreshLocal();
         }
       } else if (authMode === "register") {
         if (authValues.password !== authValues.confirm)
@@ -881,7 +900,7 @@ function AppContent() {
       setMessage("");
       if (online) {
         await syncNow();
-        await refreshServerData();
+        await refreshLocal();
       }
     } catch (e: any) {
       const code = String(e?.code ?? "");
@@ -942,9 +961,7 @@ function AppContent() {
         return (
           <NotesScreen
             theme={theme}
-            notes={notes.filter(
-              (n) => !selectedNotebook || n.notebookId === selectedNotebook,
-            )}
+            notes={notes.filter((n) => !selectedNotebook || n.notebookId === selectedNotebook)}
             notebooks={notebooks}
             online={online}
             syncing={syncing}
@@ -955,8 +972,6 @@ function AppContent() {
             selectedNotebook={selectedNotebook}
             onClearNotebook={() => setSelectedNotebook(null)}
             onBulkDelete={bulkDelete}
-            onMoveUp={(n) => void moveNote(n, -1)}
-            onMoveDown={(n) => void moveNote(n, 1)}
           />
         );
       case "Notebooks":
@@ -968,8 +983,6 @@ function AppContent() {
             onEdit={openEditNotebook}
             onOpen={openNotebook}
             onTrash={deleteNotebook}
-            onMoveUp={(b) => void moveNotebook(b, -1)}
-            onMoveDown={(b) => void moveNotebook(b, 1)}
           />
         );
       case "Trash":
@@ -1031,16 +1044,8 @@ function AppContent() {
           theme={theme}
           isDark={isDark}
           onToggleTheme={() => changeTheme(!isDark)}
-          onSignIn={() => {
-            setAuthMode("login");
-            setMessage("");
-            setShowHome(false);
-          }}
-          onGetStarted={() => {
-            setAuthMode("register");
-            setMessage("");
-            setShowHome(false);
-          }}
+          onSignIn={() => { setAuthMode("login"); setMessage(""); setShowHome(false); }}
+          onGetStarted={() => { setAuthMode("register"); setMessage(""); setShowHome(false); }}
         />
       </SafeAreaView>
     );
@@ -1061,10 +1066,7 @@ function AppContent() {
           busy={busy}
           message={message}
           onGoogle={googleLogin}
-          onBackHome={() => {
-            setShowHome(true);
-            setMessage("");
-          }}
+          onBackHome={() => { setShowHome(true); setMessage(""); }}
         />
       </SafeAreaView>
     );
@@ -1073,22 +1075,7 @@ function AppContent() {
       <ExpoStatusBar style={isDark ? "light" : "dark"} />
       <View style={{ flex: 1 }}>
         {(tab === "Notes" || tab === "Notebooks") && (
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-              marginHorizontal: 16,
-              marginTop: 10,
-              marginBottom: 5,
-              paddingHorizontal: 13,
-              minHeight: 46,
-              borderWidth: 1,
-              borderColor: theme.border,
-              borderRadius: 14,
-              backgroundColor: theme.card,
-            }}
-          >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginTop: 10, marginBottom: 5, paddingHorizontal: 13, minHeight: 46, borderWidth: 1, borderColor: theme.border, borderRadius: 14, backgroundColor: theme.card }}>
             <Ionicons name="search-outline" size={20} color={theme.muted} />
             <TextInput
               value={search}
@@ -1096,20 +1083,10 @@ function AppContent() {
               placeholder="Search notes and notebooks…"
               placeholderTextColor={theme.muted}
               returnKeyType="search"
-              style={{
-                flex: 1,
-                color: theme.text,
-                minHeight: 44,
-                paddingVertical: 0,
-              }}
+              style={{ flex: 1, color: theme.text, minHeight: 44, paddingVertical: 0 }}
             />
             {!!search && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Clear search"
-                onPress={() => setSearch("")}
-                hitSlop={8}
-              >
+              <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setSearch("")} hitSlop={8}>
                 <Ionicons name="close-circle" size={20} color={theme.muted} />
               </Pressable>
             )}
@@ -1128,37 +1105,15 @@ function AppContent() {
           paddingTop: 6,
         }}
       >
-        {[
-          {
-            key: "Notes" as Tab,
-            label: "Notes",
-            icon: "document-text-outline" as const,
-          },
-          {
-            key: "Notebooks" as Tab,
-            label: "Notebooks",
-            icon: "book-outline" as const,
-          },
-          {
-            key: "Trash" as Tab,
-            label: "Trash",
-            icon: "trash-outline" as const,
-          },
-          {
-            key: "Profile" as Tab,
-            label: "Profile",
-            icon: "person-circle-outline" as const,
-          },
+        {([
+          { key: "Notes" as Tab, label: "Notes", icon: "document-text-outline" as const },
+          { key: "Notebooks" as Tab, label: "Notebooks", icon: "book-outline" as const },
+          { key: "Trash" as Tab, label: "Trash", icon: "trash-outline" as const },
+          { key: "Profile" as Tab, label: "Profile", icon: "person-circle-outline" as const },
           ...(user?.role === "ADMIN"
-            ? [
-                {
-                  key: "Health" as Tab,
-                  label: "Health",
-                  icon: "pulse-outline" as const,
-                },
-              ]
+            ? [{ key: "Health" as Tab, label: "Health", icon: "pulse-outline" as const }]
             : []),
-        ].map((item) => (
+        ]).map((item) => (
           <Pressable
             key={item.key}
             accessibilityRole="button"
@@ -1168,26 +1123,10 @@ function AppContent() {
               if (item.key !== "Notes") setSelectedNotebook(null);
               if (item.key === "Trash" || item.key === "Profile") setSearch("");
             }}
-            style={{
-              flex: 1,
-              alignItems: "center",
-              justifyContent: "center",
-              paddingVertical: 3,
-            }}
+            style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 3 }}
           >
-            <Ionicons
-              name={item.icon}
-              size={22}
-              color={tab === item.key ? theme.brand : theme.muted}
-            />
-            <Text
-              style={{
-                fontSize: 10,
-                fontWeight: tab === item.key ? "900" : "600",
-                color: tab === item.key ? theme.brand : theme.muted,
-                marginTop: 3,
-              }}
-            >
+            <Ionicons name={item.icon} size={22} color={tab === item.key ? theme.brand : theme.muted} />
+            <Text style={{ fontSize: 10, fontWeight: tab === item.key ? "900" : "600", color: tab === item.key ? theme.brand : theme.muted, marginTop: 3 }}>
               {item.label}
             </Text>
           </Pressable>
@@ -1201,9 +1140,6 @@ function AppContent() {
         setTitle={setTitle}
         content={content}
         setContent={setContent}
-        notebooks={notebooks}
-        notebookId={noteNotebookId}
-        setNotebookId={setNoteNotebookId}
         busy={busy}
         onClose={() => setEditorVisible(false)}
         onSave={() => void saveNote()}

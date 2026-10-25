@@ -17,8 +17,6 @@ export function NotesScreen({
   selectedNotebook,
   onClearNotebook,
   onBulkDelete,
-  onMoveUp,
-  onMoveDown,
 }: {
   theme: Theme;
   notes: Note[];
@@ -32,8 +30,6 @@ export function NotesScreen({
   selectedNotebook: string | null;
   onClearNotebook: () => void;
   onBulkDelete: (ids: string[]) => void;
-  onMoveUp: (n: Note) => void;
-  onMoveDown: (n: Note) => void;
 }) {
   const [selectMode, setSelectMode] = React.useState(false);
   const [selected, setSelected] = React.useState<string[]>([]);
@@ -165,8 +161,6 @@ export function NotesScreen({
               onOpen={() => onOpen(item)}
               onTrash={() => onTrash(item)}
               onPin={() => onPin(item)}
-              onMoveUp={selectMode ? undefined : () => onMoveUp(item)}
-              onMoveDown={selectMode ? undefined : () => onMoveDown(item)}
             />
           )}
         />

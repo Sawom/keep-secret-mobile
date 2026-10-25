@@ -57,15 +57,14 @@ api.interceptors.response.use(
   async (response) => {
     if (baseURL) {
       const raw: any = response.headers?.["set-cookie"];
-
+      // Some Android networking stacks expose Set-Cookie as an array, others
+      // combine multiple cookie headers into one string. The backend's cookies
+      // do not use Expires commas, so this split preserves each cookie header.
       const setCookies: string[] = Array.isArray(raw)
         ? raw
         : typeof raw === "string"
-          ? raw
-              .split(/,(?=\s*[^;,=\s]+=)/g)
-              .map((value: string) => value.trim())
+          ? raw.split(/,(?=\s*[^;,=\s]+=)/g).map((value) => value.trim())
           : [];
-
       for (const cookie of setCookies) {
         try {
           await CookieManager.setFromResponse(baseURL, cookie);

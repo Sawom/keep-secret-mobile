@@ -11,8 +11,6 @@ export function NotebooksScreen({
   onEdit,
   onOpen,
   onTrash,
-  onMoveUp,
-  onMoveDown,
 }: {
   theme: Theme;
   notebooks: Notebook[];
@@ -20,8 +18,6 @@ export function NotebooksScreen({
   onEdit: (n: Notebook) => void;
   onOpen: (n: Notebook) => void;
   onTrash: (n: Notebook) => void;
-  onMoveUp: (n: Notebook) => void;
-  onMoveDown: (n: Notebook) => void;
 }) {
   return (
     <View style={{ flex: 1 }}>
@@ -64,8 +60,6 @@ export function NotebooksScreen({
               onOpen={() => onOpen(item)}
               onEdit={() => onEdit(item)}
               onTrash={() => onTrash(item)}
-              onMoveUp={() => onMoveUp(item)}
-              onMoveDown={() => onMoveDown(item)}
             />
           )}
         />

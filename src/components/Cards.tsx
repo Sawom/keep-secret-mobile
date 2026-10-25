@@ -1,7 +1,41 @@
 import React from "react";
 import { Pressable, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import type { Note, Notebook } from "../types";
 import type { Theme } from "../theme/theme";
+
+function IconAction({
+  label,
+  color,
+  name,
+  onPress,
+}: {
+  label: string;
+  color: string;
+  name: React.ComponentProps<typeof Ionicons>["name"];
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={(event) => {
+        event.stopPropagation();
+        onPress();
+      }}
+      hitSlop={8}
+      style={{
+        width: 38,
+        height: 38,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 12,
+      }}
+    >
+      <Ionicons name={name} size={21} color={color} />
+    </Pressable>
+  );
+}
 
 export function NoteCard({
   note,
@@ -12,8 +46,6 @@ export function NoteCard({
   selected,
   onSelect,
   showActions = true,
-  onMoveUp,
-  onMoveDown,
 }: {
   note: Note;
   theme: Theme;
@@ -23,8 +55,6 @@ export function NoteCard({
   selected?: boolean;
   onSelect?: () => void;
   showActions?: boolean;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
 }) {
   return (
     <Pressable
@@ -42,11 +72,7 @@ export function NoteCard({
         <View style={{ flex: 1 }}>
           <Text
             numberOfLines={2}
-            style={{
-              fontSize: 15,
-              fontWeight: "800",
-              color: theme.text,
-            }}
+            style={{ fontSize: 15, fontWeight: "800", color: theme.text }}
           >
             {note.title || "Untitled note"}
           </Text>
@@ -63,9 +89,11 @@ export function NoteCard({
           </Text>
         </View>
         {onSelect && (
-          <Text style={{ color: theme.brand, fontWeight: "900" }}>
-            {selected ? "✓" : "○"}
-          </Text>
+          <Ionicons
+            name={selected ? "checkmark-circle" : "ellipse-outline"}
+            size={21}
+            color={selected ? theme.brand : theme.muted}
+          />
         )}
       </View>
       <View
@@ -73,88 +101,50 @@ export function NoteCard({
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          marginTop: 13,
+          marginTop: 11,
           gap: 8,
         }}
       >
         <Text style={{ fontSize: 10, color: theme.muted, flex: 1 }}>
-          {note.updatedAt
-            ? new Date(note.updatedAt).toLocaleDateString()
-            : "Note"}
+          {note.offlineOnly
+            ? "Saved offline · waiting to sync"
+            : note.updatedAt
+              ? new Date(note.updatedAt).toLocaleDateString()
+              : ""}
         </Text>
         {showActions && (
-          <View style={{ flexDirection: "row", gap: 13 }}>
-            {onMoveUp && (
-              <Pressable
-                hitSlop={8}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onMoveUp();
-                }}
-              >
-                <Text style={{ color: theme.muted, fontWeight: "900" }}>↑</Text>
-              </Pressable>
-            )}
-            {onMoveDown && (
-              <Pressable
-                hitSlop={8}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onMoveDown();
-                }}
-              >
-                <Text style={{ color: theme.muted, fontWeight: "900" }}>↓</Text>
-              </Pressable>
-            )}
-            <Pressable
-              hitSlop={8}
-              onPress={(e) => {
-                e.stopPropagation();
-                onPin();
-              }}
-            >
-              <Text
-                style={{
-                  color: note.isPinned ? theme.brand : theme.muted,
-                  fontWeight: "800",
-                }}
-              >
-                {note.isPinned ? "Pinned" : "Pin"}
-              </Text>
-            </Pressable>
-            <Pressable
-              hitSlop={8}
-              onPress={(e) => {
-                e.stopPropagation();
-                onTrash();
-              }}
-            >
-              <Text style={{ color: theme.danger, fontWeight: "800" }}>
-                Trash
-              </Text>
-            </Pressable>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+            <IconAction
+              label={note.isPinned ? "Unpin note" : "Pin note"}
+              color={note.isPinned ? theme.brand : theme.muted}
+              name={note.isPinned ? "pin" : "pin-outline"}
+              onPress={onPin}
+            />
+            <IconAction
+              label="Move note to trash"
+              color={theme.danger}
+              name="trash-outline"
+              onPress={onTrash}
+            />
           </View>
         )}
       </View>
     </Pressable>
   );
 }
+
 export function NotebookCard({
   notebook,
   theme,
   onOpen,
   onEdit,
   onTrash,
-  onMoveUp,
-  onMoveDown,
 }: {
   notebook: Notebook;
   theme: Theme;
   onOpen: () => void;
   onEdit: () => void;
   onTrash: () => void;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
 }) {
   return (
     <Pressable
@@ -181,7 +171,7 @@ export function NotebookCard({
           justifyContent: "center",
         }}
       >
-        <Text style={{ fontSize: 22, color: "#fff" }}>▤</Text>
+        <Ionicons name="book-outline" size={23} color="#fff" />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={{ fontSize: 15, fontWeight: "800", color: theme.text }}>
@@ -195,29 +185,19 @@ export function NotebookCard({
           {notebook.offlineOnly ? " · Offline" : ""}
         </Text>
       </View>
-      <View style={{ gap: 8, alignItems: "flex-end" }}>
-        {onMoveUp && (
-          <Pressable onPress={onMoveUp} hitSlop={8}>
-            <Text style={{ color: theme.muted, fontWeight: "900" }}>↑</Text>
-          </Pressable>
-        )}
-        {onMoveDown && (
-          <Pressable onPress={onMoveDown} hitSlop={8}>
-            <Text style={{ color: theme.muted, fontWeight: "900" }}>↓</Text>
-          </Pressable>
-        )}
-        <Pressable
-          onPress={(e) => {
-            e.stopPropagation();
-            onEdit();
-          }}
-          hitSlop={8}
-        >
-          <Text style={{ color: theme.brand, fontWeight: "800" }}>Edit</Text>
-        </Pressable>
-        <Pressable onPress={onTrash} hitSlop={8}>
-          <Text style={{ color: theme.danger, fontWeight: "800" }}>Trash</Text>
-        </Pressable>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+        <IconAction
+          label="Edit notebook"
+          color={theme.brand}
+          name="create-outline"
+          onPress={onEdit}
+        />
+        <IconAction
+          label="Move notebook to trash"
+          color={theme.danger}
+          name="trash-outline"
+          onPress={onTrash}
+        />
       </View>
     </Pressable>
   );
