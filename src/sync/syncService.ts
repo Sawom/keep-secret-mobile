@@ -22,16 +22,24 @@ let running: Promise<{
   online: boolean;
   error?: string;
 }> | null = null;
+
 export async function syncNow() {
   if (running) return running;
   running = (async () => {
     const state = await NetInfo.fetch();
-    if (!state.isConnected || state.isInternetReachable === false)
+    if (state.isConnected === false || state.isInternetReachable === false)
       return { synced: 0, online: false };
     let synced = 0;
     let lastError: string | undefined;
     const ops = await pendingOps();
     for (const op of ops) {
+      // If a queue payload cannot be decrypted, keep it on disk and stop in order.
+      // Later operations may depend on this operation's local ID mapping.
+      if ((op as any).unreadable) {
+        lastError =
+          "An offline change is still stored on this device but its encrypted queue payload cannot be read. It has been preserved instead of deleted.";
+        break;
+      }
       const id = await resolveRemoteId(op.entityId);
       try {
         if (op.action === "create") {
@@ -218,12 +226,14 @@ export async function createOfflineNote(payload: Partial<Note>) {
   });
   return note;
 }
+
 export async function updateOfflineNote(note: Note, patch: Partial<Note>) {
   const updated = { ...note, ...patch, updatedAt: new Date().toISOString() };
   await saveLocalNote(updated, true);
   await enqueue("note", "update", note.id, patch);
   return updated;
 }
+
 export async function trashOfflineNote(note: Note) {
   const updated = {
     ...note,
@@ -235,6 +245,7 @@ export async function trashOfflineNote(note: Note) {
   await enqueue("note", "trash", note.id, {});
   return updated;
 }
+
 export async function createOfflineNotebook(payload: Partial<Notebook>) {
   const now = new Date().toISOString();
   const notebook: Notebook = {
@@ -258,6 +269,7 @@ export async function createOfflineNotebook(payload: Partial<Notebook>) {
   });
   return notebook;
 }
+
 export async function updateOfflineNotebook(
   notebook: Notebook,
   patch: Partial<Notebook>,
@@ -271,6 +283,7 @@ export async function updateOfflineNotebook(
   await enqueue("notebook", "update", notebook.id, patch);
   return updated;
 }
+
 export async function trashOfflineNotebook(notebook: Notebook) {
   const updated = {
     ...notebook,
@@ -293,6 +306,7 @@ export async function restoreOfflineNote(note: Note) {
   await enqueue("note", "restore", note.id, {});
   return updated;
 }
+
 export async function restoreOfflineNotebook(notebook: Notebook) {
   const updated = {
     ...notebook,
@@ -303,6 +317,7 @@ export async function restoreOfflineNotebook(notebook: Notebook) {
   await enqueue("notebook", "restore", notebook.id, {});
   return updated;
 }
+
 export async function permanentlyDeleteOffline(
   entity: "note" | "notebook",
   id: string,
@@ -336,6 +351,7 @@ export async function queueNoteReorder(
   }
   await enqueue("note", "reorder", "__notes_order__", { items, notebookId });
 }
+
 export async function queueNotebookReorder(
   book: Notebook,
   beforeId: string | null,

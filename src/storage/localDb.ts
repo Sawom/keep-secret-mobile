@@ -61,17 +61,21 @@ export async function initLocalDb() {
 }
 export async function getLocalNotes(includeDeleted = false): Promise<Note[]> {
   const d = await db();
-  const rows = await d.getAllAsync<{ id: string; payload: string }>(
-    "SELECT id, payload FROM notes ORDER BY updatedAt DESC",
-  );
+  const rows = await d.getAllAsync<{
+    id: string;
+    payload: string;
+    pending: number;
+  }>("SELECT id, payload, pending FROM notes ORDER BY updatedAt DESC");
   const values: Note[] = [];
   for (const row of rows) {
     try {
       values.push(await open<Note>(row.payload));
     } catch {
-      // A cache entry encrypted with an old/lost device key cannot be recovered.
-      // Remove only that local copy; sync will restore the server copy if it exists.
-      await d.runAsync("DELETE FROM notes WHERE id = ?", row.id);
+      // Never delete a pending offline note just because this device cannot decrypt
+      // its cache. It may be the only copy of an unsynced change. Non-pending cache
+      // entries can be rebuilt safely from the backend on the next successful pull.
+      if (!row.pending)
+        await d.runAsync("DELETE FROM notes WHERE id = ?", row.id);
     }
   }
   return values
@@ -84,16 +88,20 @@ export async function getLocalNotes(includeDeleted = false): Promise<Note[]> {
 }
 export async function getLocalNotebooks(): Promise<Notebook[]> {
   const d = await db();
-  const rows = await d.getAllAsync<{ id: string; payload: string }>(
-    "SELECT id, payload FROM notebooks ORDER BY updatedAt DESC",
-  );
+  const rows = await d.getAllAsync<{
+    id: string;
+    payload: string;
+    pending: number;
+  }>("SELECT id, payload, pending FROM notebooks ORDER BY updatedAt DESC");
   const values: Notebook[] = [];
   for (const row of rows) {
     try {
       values.push(await open<Notebook>(row.payload));
     } catch {
-      // Server data remains the source of truth; discard an unreadable local cache row.
-      await d.runAsync("DELETE FROM notebooks WHERE id = ?", row.id);
+      // Keep an unreadable pending notebook row for recovery; never silently discard
+      // the only device-side copy of an offline-created notebook.
+      if (!row.pending)
+        await d.runAsync("DELETE FROM notebooks WHERE id = ?", row.id);
     }
   }
   return values.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
@@ -157,14 +165,15 @@ export async function pendingOps() {
     action: string;
     entityId: string;
     payload: any;
+    unreadable?: boolean;
   }> = [];
   for (const row of rows) {
     try {
       valid.push({ ...row, payload: await open<any>(row.payload) });
     } catch {
-      // This queued operation is unreadable, so it cannot safely be replayed.
-      // Keep the app usable and allow the next server pull to restore remote data.
-      await d.runAsync("DELETE FROM pending_ops WHERE id = ?", row.id);
+      // Preserve unreadable queue entries. Deleting one here would silently lose
+      // an offline change. syncService will stop safely and report the problem.
+      valid.push({ ...row, payload: null, unreadable: true });
     }
   }
   return valid;

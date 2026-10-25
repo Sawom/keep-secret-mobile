@@ -23,6 +23,7 @@ import {
   getCachedSignedInUser,
   getLocalNotes,
   getLocalNotebooks,
+  hasPendingFor,
   initLocalDb,
   getThemePreference,
   setThemePreference,
@@ -103,10 +104,16 @@ function isNetworkUnavailable(error: any) {
   const message = String(error?.message ?? "").toLowerCase();
   return (
     code === "ERR_NETWORK" ||
+    code === "ERR_INTERNET_DISCONNECTED" ||
+    code === "ECONNABORTED" ||
+    code === "ETIMEDOUT" ||
     message.includes("network request failed") ||
     message.includes("network error") ||
     message.includes("failed to fetch") ||
-    message.includes("internet connection")
+    message.includes("internet connection") ||
+    message.includes("timeout") ||
+    message.includes("socket hang up") ||
+    message.includes("connection lost")
   );
 }
 
@@ -157,21 +164,95 @@ function AppContent() {
     setTrashNotes(t);
     setTrashNotebooks(b.filter((x) => !!(x as any).isDeleted));
   }, []);
-  // The backend is the source of truth whenever online. Do not depend on the
-  // encrypted device cache to display data created on the web.
+  // Fetch from the shared backend directly so notes created on the web are not
+  // dependent on a possibly stale local cache. Keep only pending offline records
+  // alongside server data until their queued operations have successfully synced.
   const refreshServerData = useCallback(async () => {
-    const [remoteNotes, remoteNotebooks] = await Promise.all([
-      dataService.getNotes(),
-      dataService.getNotebooks(),
-    ]);
-    setNotes(remoteNotes.filter((note) => !note.isDeleted));
-    setNotebooks(remoteNotebooks.filter((book) => !book.isDeleted));
+    const [remoteNotes, remoteNotebooks, localNotes, localNotebooks] =
+      await Promise.all([
+        dataService.getNotes(),
+        dataService.getNotebooks(),
+        getLocalNotes(),
+        getLocalNotebooks(),
+      ]);
 
-    // Cache writes are best-effort; a broken old local cache must not hide
-    // successful server responses or make a server save look like a failure.
+    const [pendingLocalNotes, pendingLocalNotebooks] = await Promise.all([
+      Promise.all(
+        localNotes.map(async (note) => ({
+          note,
+          pending:
+            note.id.startsWith("local-") ||
+            (await hasPendingFor("note", note.id)),
+        })),
+      ),
+      Promise.all(
+        localNotebooks.map(async (book) => ({
+          book,
+          pending:
+            book.id.startsWith("local-") ||
+            (await hasPendingFor("notebook", book.id)),
+        })),
+      ),
+    ]);
+
+    const remoteNoteIds = new Set(remoteNotes.map((note) => note.id));
+    const remoteNotebookIds = new Set(remoteNotebooks.map((book) => book.id));
+    const pendingNoteById = new Map<string, Note>(
+      pendingLocalNotes
+        .filter(({ pending }) => pending)
+        .map(({ note }) => [note.id, note] as const),
+    );
+    const pendingNotebookById = new Map<string, Notebook>(
+      pendingLocalNotebooks
+        .filter(({ pending }) => pending)
+        .map(({ book }) => [book.id, book] as const),
+    );
+    const unsyncedNotes = pendingLocalNotes
+      .filter(({ note, pending }) => pending && !remoteNoteIds.has(note.id))
+      .map(({ note }) => note);
+    const unsyncedNotebooks = pendingLocalNotebooks
+      .filter(({ book, pending }) => pending && !remoteNotebookIds.has(book.id))
+      .map(({ book }) => book);
+
+    // A queued local edit wins over the older server version until that edit syncs.
+    const mergedNotes = remoteNotes.map(
+      (note) => pendingNoteById.get(note.id) ?? note,
+    );
+    const mergedNotebooks = remoteNotebooks.map(
+      (book) => pendingNotebookById.get(book.id) ?? book,
+    );
+    setNotes([
+      ...unsyncedNotes.filter((note) => !note.isDeleted),
+      ...mergedNotes.filter((note) => !note.isDeleted),
+    ]);
+    setNotebooks([
+      ...unsyncedNotebooks.filter((book) => !book.isDeleted),
+      ...mergedNotebooks.filter((book) => !book.isDeleted),
+    ]);
+
+    // Refresh the encrypted cache without overwriting any record with queued
+    // offline edits. Cache failures never turn a successful server fetch into an error.
+    const [remoteNotesToCache, remoteBooksToCache] = await Promise.all([
+      Promise.all(
+        remoteNotes.map(async (note) => ({
+          note,
+          pending: await hasPendingFor("note", note.id),
+        })),
+      ),
+      Promise.all(
+        remoteNotebooks.map(async (book) => ({
+          book,
+          pending: await hasPendingFor("notebook", book.id),
+        })),
+      ),
+    ]);
     void Promise.all([
-      ...remoteNotes.map((note) => saveLocalNote(note, false)),
-      ...remoteNotebooks.map((book) => saveLocalNotebook(book, false)),
+      ...remoteNotesToCache
+        .filter(({ pending }) => !pending)
+        .map(({ note }) => saveLocalNote(note, false)),
+      ...remoteBooksToCache
+        .filter(({ pending }) => !pending)
+        .map(({ book }) => saveLocalNotebook(book, false)),
     ]).catch((error) => console.warn("Local cache update failed", error));
   }, []);
   const pullTrash = useCallback(async () => {
@@ -216,21 +297,34 @@ function AppContent() {
     }
   }, [online]);
   const sync = useCallback(async () => {
-    if (!user || !online || syncing) return;
+    if (!user) return;
     setSyncing(true);
     try {
       const result = await syncNow();
       if ((result as any)?.error) {
         console.warn("Pending offline sync issue:", (result as any).error);
       }
-      await refreshLocal();
-      await pullTrash();
+
+      if (result.online) {
+        // Pull directly after the queue is processed. Do not rely on refreshLocal(),
+        // which only reads SQLite and cannot see changes made in the web app.
+        try {
+          await refreshServerData();
+        } catch (error) {
+          console.warn("Could not pull latest server data", error);
+          await refreshLocal();
+        }
+        await pullTrash();
+      } else {
+        await refreshLocal();
+      }
     } catch (e) {
       console.warn("Sync failed", e);
+      await refreshLocal();
     } finally {
       setSyncing(false);
     }
-  }, [user, online, syncing, refreshLocal, pullTrash]);
+  }, [user?.id, refreshLocal, refreshServerData, pullTrash]);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -239,22 +333,40 @@ function AppContent() {
         const savedTheme = await getThemePreference();
         if (alive) setIsDark(savedTheme);
         const state = await NetInfo.fetch();
-        if (alive)
-          setOnline(!!state.isConnected && state.isInternetReachable !== false);
+        const networkAvailable =
+          state.isConnected !== false && state.isInternetReachable !== false;
+        if (alive) setOnline(networkAvailable);
+
+        // Load the device cache and remembered account before making any network
+        // request. This lets the workspace open immediately in airplane mode instead
+        // of waiting for the profile request timeout.
         await refreshLocal();
-        try {
-          const result = await authService.profile();
-          if (alive) {
-            setUser(result.user);
-            setShowHome(false);
-            await cacheSignedInUser(result.user);
-          }
-        } catch {
-          const cached = await getCachedSignedInUser();
-          if (alive && cached) {
-            setUser(cached);
-            setShowHome(false);
-          }
+        const cached = await getCachedSignedInUser();
+        if (alive && cached) {
+          setUser(cached);
+          setShowHome(false);
+        }
+
+        // The backend session refresh is only attempted when a network is available.
+        // The cached user remains available if the request fails temporarily.
+        if (networkAvailable) {
+          const refreshProfileInBackground = async () => {
+            try {
+              const result = await authService.profile();
+              if (alive) {
+                setUser(result.user);
+                setShowHome(false);
+                await cacheSignedInUser(result.user);
+              }
+            } catch {
+              if (alive && !cached) setShowHome(true);
+            }
+          };
+
+          // If a cached account exists, don't block opening its local workspace on
+          // the profile endpoint. Refresh the server session/user in the background.
+          if (cached) void refreshProfileInBackground();
+          else await refreshProfileInBackground();
         }
       } catch (e) {
         console.warn("App bootstrap failed", e);
@@ -298,14 +410,17 @@ function AppContent() {
   }, []);
   useEffect(() => {
     if (user && online) void sync();
-  }, [user, online]);
+  }, [user?.id, online, sync]);
   // Pull changes made on the web while the mobile app stays open, and sync again
   // when Android brings the app back to the foreground.
   useEffect(() => {
     if (!user || !online) return;
     const refreshFromServer = () => {
       void syncNow()
-        .then(() => refreshLocal())
+        .then(async (result) => {
+          if (result.online) await refreshServerData();
+          else await refreshLocal();
+        })
         .catch((error) => console.warn("Background sync failed", error));
     };
     const interval = setInterval(refreshFromServer, 60_000);
@@ -316,7 +431,7 @@ function AppContent() {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [user?.id, online, refreshLocal]);
+  }, [user?.id, online, refreshLocal, refreshServerData]);
   useEffect(() => {
     if (!user) return;
     void pullTrash();
@@ -336,7 +451,8 @@ function AppContent() {
             ? "Your account does not have admin permission on the backend."
             : error?.response?.status
               ? `Health API returned HTTP ${error.response.status}.`
-              : error?.message || "Please check your internet connection and try again."),
+              : error?.message ||
+                "Please check your internet connection and try again."),
       );
     } finally {
       setHealthLoading(false);
@@ -415,7 +531,19 @@ function AppContent() {
     };
 
     try {
-      if (online && (!editing || !editing.id.startsWith("local-"))) {
+      // Check connectivity at save time rather than trusting possibly stale React state.
+      // If Wi-Fi was just turned off, save locally immediately instead of waiting for
+      // the API request timeout before entering the offline queue.
+      let canReachServer = online;
+      try {
+        const state = await NetInfo.fetch();
+        canReachServer =
+          state.isConnected !== false && state.isInternetReachable !== false;
+      } catch {
+        // Keep the last known network state if NetInfo itself is unavailable.
+      }
+
+      if (canReachServer && (!editing || !editing.id.startsWith("local-"))) {
         let saved: Note;
         try {
           saved = editing
@@ -426,6 +554,7 @@ function AppContent() {
           // HTTP/API errors are not silently converted into offline saves.
           if (!isNetworkUnavailable(error)) throw error;
           await saveToDeviceQueue();
+          void sync();
           return;
         }
 
@@ -442,7 +571,10 @@ function AppContent() {
         try {
           await saveLocalNote(saved, false);
         } catch (cacheError) {
-          console.warn("Note saved remotely; local cache update failed", cacheError);
+          console.warn(
+            "Note saved remotely; local cache update failed",
+            cacheError,
+          );
         }
         // Do not block closing the editor while a full list refresh runs.
         void refreshServerData().catch((error) =>
@@ -452,12 +584,15 @@ function AppContent() {
       }
 
       await saveToDeviceQueue();
+      if (canReachServer) void sync();
     } catch (error: any) {
       const raw = error?.response?.data?.message;
       const detail = Array.isArray(raw) ? raw.join(", ") : raw;
       Alert.alert(
         "Could not save note",
-        detail || error?.message || "The note could not be saved. Your editor is still open; please try again.",
+        detail ||
+          error?.message ||
+          "The note could not be saved. Your editor is still open; please try again.",
       );
       // Keep the editor open so its text is never discarded on a failed save.
     } finally {
@@ -611,7 +746,20 @@ function AppContent() {
     };
 
     try {
-      if (online && (!editingNotebook || !editingNotebook.id.startsWith("local-"))) {
+      // Use current connectivity for this save; the React state can lag behind Wi-Fi.
+      let canReachServer = online;
+      try {
+        const state = await NetInfo.fetch();
+        canReachServer =
+          state.isConnected !== false && state.isInternetReachable !== false;
+      } catch {
+        // Fall back to the last known state if NetInfo is unavailable.
+      }
+
+      if (
+        canReachServer &&
+        (!editingNotebook || !editingNotebook.id.startsWith("local-"))
+      ) {
         let saved: Notebook;
         try {
           saved = editingNotebook
@@ -620,6 +768,7 @@ function AppContent() {
         } catch (error: any) {
           if (!isNetworkUnavailable(error)) throw error;
           await saveToDeviceQueue();
+          void sync();
           return;
         }
 
@@ -638,7 +787,10 @@ function AppContent() {
         try {
           await saveLocalNotebook(saved, false);
         } catch (cacheError) {
-          console.warn("Notebook saved remotely; local cache update failed", cacheError);
+          console.warn(
+            "Notebook saved remotely; local cache update failed",
+            cacheError,
+          );
         }
         void refreshServerData().catch((error) =>
           console.warn("Could not refresh notebooks after save", error),
@@ -647,12 +799,15 @@ function AppContent() {
       }
 
       await saveToDeviceQueue();
+      if (canReachServer) void sync();
     } catch (error: any) {
       const raw = error?.response?.data?.message;
       const detail = Array.isArray(raw) ? raw.join(", ") : raw;
       Alert.alert(
         "Could not save notebook",
-        detail || error?.message || "The notebook could not be saved. Your editor is still open; please try again.",
+        detail ||
+          error?.message ||
+          "The notebook could not be saved. Your editor is still open; please try again.",
       );
     } finally {
       setBusy(false);
@@ -829,10 +984,12 @@ function AppContent() {
         await cacheSignedInUser(result.user);
         setTab("Notes");
         setAuthValues(emptyAuth);
-        if (online) {
-          await syncNow();
-          await refreshLocal();
-        }
+        // Render the device cache immediately, then fetch the shared backend.
+        // The user/online effects also process the offline queue on reconnection.
+        await refreshLocal();
+        void refreshServerData().catch((error) =>
+          console.warn("Initial server data load failed", error),
+        );
       } else if (authMode === "register") {
         if (authValues.password !== authValues.confirm)
           throw new Error("Passwords do not match.");
@@ -898,10 +1055,11 @@ function AppContent() {
       await cacheSignedInUser(result.user);
       setTab("Notes");
       setMessage("");
-      if (online) {
-        await syncNow();
-        await refreshLocal();
-      }
+      // Show cached items first, then replace them with the latest backend data.
+      await refreshLocal();
+      void refreshServerData().catch((error) =>
+        console.warn("Initial server data load failed", error),
+      );
     } catch (e: any) {
       const code = String(e?.code ?? "");
       const status = e?.response?.status;
@@ -961,7 +1119,9 @@ function AppContent() {
         return (
           <NotesScreen
             theme={theme}
-            notes={notes.filter((n) => !selectedNotebook || n.notebookId === selectedNotebook)}
+            notes={notes.filter(
+              (n) => !selectedNotebook || n.notebookId === selectedNotebook,
+            )}
             notebooks={notebooks}
             online={online}
             syncing={syncing}
@@ -1044,8 +1204,16 @@ function AppContent() {
           theme={theme}
           isDark={isDark}
           onToggleTheme={() => changeTheme(!isDark)}
-          onSignIn={() => { setAuthMode("login"); setMessage(""); setShowHome(false); }}
-          onGetStarted={() => { setAuthMode("register"); setMessage(""); setShowHome(false); }}
+          onSignIn={() => {
+            setAuthMode("login");
+            setMessage("");
+            setShowHome(false);
+          }}
+          onGetStarted={() => {
+            setAuthMode("register");
+            setMessage("");
+            setShowHome(false);
+          }}
         />
       </SafeAreaView>
     );
@@ -1066,7 +1234,10 @@ function AppContent() {
           busy={busy}
           message={message}
           onGoogle={googleLogin}
-          onBackHome={() => { setShowHome(true); setMessage(""); }}
+          onBackHome={() => {
+            setShowHome(true);
+            setMessage("");
+          }}
         />
       </SafeAreaView>
     );
@@ -1075,7 +1246,22 @@ function AppContent() {
       <ExpoStatusBar style={isDark ? "light" : "dark"} />
       <View style={{ flex: 1 }}>
         {(tab === "Notes" || tab === "Notebooks") && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginTop: 10, marginBottom: 5, paddingHorizontal: 13, minHeight: 46, borderWidth: 1, borderColor: theme.border, borderRadius: 14, backgroundColor: theme.card }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              marginHorizontal: 16,
+              marginTop: 10,
+              marginBottom: 5,
+              paddingHorizontal: 13,
+              minHeight: 46,
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 14,
+              backgroundColor: theme.card,
+            }}
+          >
             <Ionicons name="search-outline" size={20} color={theme.muted} />
             <TextInput
               value={search}
@@ -1083,10 +1269,20 @@ function AppContent() {
               placeholder="Search notes and notebooks…"
               placeholderTextColor={theme.muted}
               returnKeyType="search"
-              style={{ flex: 1, color: theme.text, minHeight: 44, paddingVertical: 0 }}
+              style={{
+                flex: 1,
+                color: theme.text,
+                minHeight: 44,
+                paddingVertical: 0,
+              }}
             />
             {!!search && (
-              <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setSearch("")} hitSlop={8}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+                onPress={() => setSearch("")}
+                hitSlop={8}
+              >
                 <Ionicons name="close-circle" size={20} color={theme.muted} />
               </Pressable>
             )}
@@ -1105,15 +1301,37 @@ function AppContent() {
           paddingTop: 6,
         }}
       >
-        {([
-          { key: "Notes" as Tab, label: "Notes", icon: "document-text-outline" as const },
-          { key: "Notebooks" as Tab, label: "Notebooks", icon: "book-outline" as const },
-          { key: "Trash" as Tab, label: "Trash", icon: "trash-outline" as const },
-          { key: "Profile" as Tab, label: "Profile", icon: "person-circle-outline" as const },
+        {[
+          {
+            key: "Notes" as Tab,
+            label: "Notes",
+            icon: "document-text-outline" as const,
+          },
+          {
+            key: "Notebooks" as Tab,
+            label: "Notebooks",
+            icon: "book-outline" as const,
+          },
+          {
+            key: "Trash" as Tab,
+            label: "Trash",
+            icon: "trash-outline" as const,
+          },
+          {
+            key: "Profile" as Tab,
+            label: "Profile",
+            icon: "person-circle-outline" as const,
+          },
           ...(user?.role === "ADMIN"
-            ? [{ key: "Health" as Tab, label: "Health", icon: "pulse-outline" as const }]
+            ? [
+                {
+                  key: "Health" as Tab,
+                  label: "Health",
+                  icon: "pulse-outline" as const,
+                },
+              ]
             : []),
-        ]).map((item) => (
+        ].map((item) => (
           <Pressable
             key={item.key}
             accessibilityRole="button"
@@ -1123,10 +1341,26 @@ function AppContent() {
               if (item.key !== "Notes") setSelectedNotebook(null);
               if (item.key === "Trash" || item.key === "Profile") setSearch("");
             }}
-            style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 3 }}
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              paddingVertical: 3,
+            }}
           >
-            <Ionicons name={item.icon} size={22} color={tab === item.key ? theme.brand : theme.muted} />
-            <Text style={{ fontSize: 10, fontWeight: tab === item.key ? "900" : "600", color: tab === item.key ? theme.brand : theme.muted, marginTop: 3 }}>
+            <Ionicons
+              name={item.icon}
+              size={22}
+              color={tab === item.key ? theme.brand : theme.muted}
+            />
+            <Text
+              style={{
+                fontSize: 10,
+                fontWeight: tab === item.key ? "900" : "600",
+                color: tab === item.key ? theme.brand : theme.muted,
+                marginTop: 3,
+              }}
+            >
               {item.label}
             </Text>
           </Pressable>
