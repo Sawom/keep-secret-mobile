@@ -10,15 +10,6 @@ import {
 import { Button, Field } from "./Controls";
 import type { Note, Notebook } from "../types";
 import type { Theme } from "../theme/theme";
-const colors = [
-  "#FFFFFF",
-  "#FEF3C7",
-  "#DCFCE7",
-  "#DBEAFE",
-  "#FCE7F3",
-  "#EDE9FE",
-  "#1F2937",
-];
 export function NoteEditor({
   visible,
   theme,
@@ -27,8 +18,6 @@ export function NoteEditor({
   setTitle,
   content,
   setContent,
-  color,
-  setColor,
   notebooks,
   notebookId,
   setNotebookId,
@@ -43,8 +32,6 @@ export function NoteEditor({
   setTitle: (v: string) => void;
   content: string;
   setContent: (v: string) => void;
-  color: string;
-  setColor: (v: string) => void;
   notebooks: Notebook[];
   notebookId: string | null;
   setNotebookId: (v: string | null) => void;
@@ -158,48 +145,14 @@ export function NoteEditor({
           </View>
           <Text
             style={{
-              fontSize: 12,
-              fontWeight: "900",
-              color: theme.muted,
-              marginTop: 18,
-            }}
-          >
-            Note color
-          </Text>
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 12,
-              marginTop: 10,
-            }}
-          >
-            {colors.map((c) => (
-              <Pressable
-                key={c}
-                accessibilityLabel={`Choose ${c}`}
-                onPress={() => setColor(c)}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: c,
-                  borderWidth: color === c ? 3 : 1,
-                  borderColor: color === c ? theme.brand : theme.border,
-                }}
-              />
-            ))}
-          </View>
-          <Text
-            style={{
               fontSize: 11,
               lineHeight: 17,
               color: theme.muted,
               marginTop: 18,
             }}
           >
-            Changes save locally when offline and sync when your device
-            reconnects. The backend currently requires both a title and content.
+            Your note is saved to your KeepSecret account. The backend requires
+            a title and content.
           </Text>
           <Button
             title={busy ? "Saving…" : "Save note"}

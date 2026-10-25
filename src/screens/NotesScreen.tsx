@@ -1,5 +1,5 @@
 import React from "react";
-import { FlatList, Pressable, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, Text, View } from "react-native";
 import { Button, EmptyState, ScreenHeader } from "../components/Controls";
 import { NoteCard } from "../components/Cards";
 import type { Note, Notebook } from "../types";
@@ -10,8 +10,6 @@ export function NotesScreen({
   notebooks,
   online,
   syncing,
-  search,
-  setSearch,
   onCreate,
   onOpen,
   onTrash,
@@ -27,8 +25,6 @@ export function NotesScreen({
   notebooks: Notebook[];
   online: boolean;
   syncing: boolean;
-  search: string;
-  setSearch: (s: string) => void;
   onCreate: () => void;
   onOpen: (n: Note) => void;
   onTrash: (n: Note) => void;
@@ -45,9 +41,7 @@ export function NotesScreen({
     setSelected([]);
     setSelectMode(false);
   }, [selectedNotebook]);
-  const filtered = notes.filter((n) =>
-    `${n.title} ${n.content}`.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = notes;
   const toggle = (id: string) =>
     setSelected((old) =>
       old.includes(id) ? old.filter((x) => x !== id) : [...old, id],
@@ -90,29 +84,12 @@ export function NotesScreen({
       <View
         style={{
           paddingHorizontal: 16,
-          paddingTop: 13,
-          flexDirection: "row",
-          gap: 8,
+          paddingTop: 12,
+          alignItems: "flex-end",
         }}
       >
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search your notes…"
-          placeholderTextColor={theme.muted}
-          style={{
-            flex: 1,
-            minHeight: 45,
-            borderWidth: 1,
-            borderColor: theme.border,
-            borderRadius: 13,
-            paddingHorizontal: 13,
-            color: theme.text,
-            backgroundColor: theme.card,
-          }}
-        />
         <Button
-          title={selectMode ? "Cancel" : "Select"}
+          title={selectMode ? "Cancel selection" : "Select notes"}
           theme={theme}
           secondary
           onPress={() => {
@@ -165,12 +142,8 @@ export function NotesScreen({
       {filtered.length === 0 ? (
         <EmptyState
           theme={theme}
-          title={search ? "No matching notes" : "No notes yet"}
-          body={
-            search
-              ? "Try another search phrase."
-              : "Create your first note. It will be saved locally and synced when you are online."
-          }
+          title="No notes yet"
+          body="Create your first note to get started."
           action="Create note"
           onAction={onCreate}
         />

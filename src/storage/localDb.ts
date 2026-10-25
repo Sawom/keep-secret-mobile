@@ -23,12 +23,33 @@ async function localKey() {
     })();
   return localKeyPromise;
 }
-const seal = async (value: unknown) =>
-  CryptoJS.AES.encrypt(JSON.stringify(value), await localKey()).toString();
-const open = async <T>(value: string): Promise<T> =>
-  JSON.parse(
-    CryptoJS.AES.decrypt(value, await localKey()).toString(CryptoJS.enc.Utf8),
-  ) as T;
+// Notes are also encrypted in this device-only cache. This is separate from
+// backend encryption. Supply CryptoJS an Expo-generated salt explicitly so
+// CryptoJS does not call its unsupported React Native random-number fallback.
+function bytesToWordArray(bytes: Uint8Array) {
+  const words: number[] = [];
+  for (let i = 0; i < bytes.length; i++) {
+    words[i >>> 2] = (words[i >>> 2] ?? 0) | (bytes[i] << (24 - (i % 4) * 8));
+  }
+  return CryptoJS.lib.WordArray.create(words, bytes.length);
+}
+
+const seal = async (value: unknown) => {
+  const salt = bytesToWordArray(await Crypto.getRandomBytesAsync(16));
+  return CryptoJS.AES.encrypt(JSON.stringify(value), await localKey(), {
+    salt,
+  }).toString();
+};
+const open = async <T>(value: string): Promise<T> => {
+  const plaintext = CryptoJS.AES.decrypt(value, await localKey()).toString(
+    CryptoJS.enc.Utf8,
+  );
+  if (!plaintext)
+    throw new Error(
+      "Could not decrypt the local cache. Please sign in again to resync your data.",
+    );
+  return JSON.parse(plaintext) as T;
+};
 
 export async function initLocalDb() {
   const d = await db();
