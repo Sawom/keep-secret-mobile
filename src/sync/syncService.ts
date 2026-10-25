@@ -3,13 +3,14 @@ import { dataService } from '../api/dataService';
 import { enqueue, getLocalNotes, getLocalNotebooks, hasPendingFor, markSynced, pendingOps, removePendingOp, replaceLocalId, resolveRemoteId, saveLocalNote, saveLocalNotebook, removeLocalNote, removeLocalNotebook } from '../storage/localDb';
 import type { Note, Notebook } from '../types';
 
-let running: Promise<{ synced: number; online: boolean }> | null = null;
+let running: Promise<{ synced: number; online: boolean; error?: string }> | null = null;
 export async function syncNow() {
   if (running) return running;
   running = (async () => {
     const state = await NetInfo.fetch();
     if (!state.isConnected || state.isInternetReachable === false) return { synced: 0, online: false };
     let synced = 0;
+    let lastError: string | undefined;
     const ops = await pendingOps();
     for (const op of ops) {
       const id = await resolveRemoteId(op.entityId);
@@ -30,7 +31,7 @@ export async function syncNow() {
           const updated = op.entity === 'note'
             ? await dataService.updateNote(id, payload)
             : await dataService.updateNotebook(id, payload);
-          await markSynced(op.entity as 'note'|'notebook', id, updated as Note|Notebook);
+          await markSynced(op.entity as 'note' | 'notebook', id, updated as Note | Notebook);
         } else if (op.action === 'trash') {
           if (op.entity === 'note') {
             await dataService.trashNote(id);
@@ -48,7 +49,7 @@ export async function syncNow() {
           if (op.entity === 'note') await dataService.permanentDeleteNote(id); else await dataService.permanentDeleteNotebook(id);
         } else if (op.action === 'reorder') {
           if (op.entity === 'note') {
-            const items = (op.payload.items ?? []).map((item: {id:string;position:number}) => ({...item}));
+            const items = (op.payload.items ?? []).map((item: { id: string; position: number }) => ({ ...item }));
             for (const item of items) item.id = await resolveRemoteId(item.id);
             const notebookId = op.payload.notebookId ? await resolveRemoteId(op.payload.notebookId) : null;
             await dataService.reorderNotes(items, notebookId);
@@ -58,10 +59,10 @@ export async function syncNow() {
         }
         await removePendingOp(op.id); synced++;
       } catch (error: any) {
-        // Stop on the first failure: later operations may depend on this operation's ID mapping.
-        if (!error?.response) break;
-        if (error.response.status >= 500 || error.response.status === 429) break;
-        // A conflict/validation error must stay queued for the user to resolve rather than being silently discarded.
+        // Preserve the operation and surface a safe diagnostic; never discard private user data.
+        const raw = error?.response?.data?.message;
+        lastError = (Array.isArray(raw) ? raw.join(', ') : raw) || (error?.response?.status ? `HTTP ${error.response.status}` : error?.message) || 'Network request failed';
+        // Stop because later operations may depend on this operation's ID mapping.
         break;
       }
     }
@@ -73,10 +74,11 @@ export async function syncNow() {
       for (const local of await getLocalNotebooks()) if (!local.id.startsWith('local-') && !remoteNotebookIds.has(local.id) && !(await hasPendingFor('notebook', local.id)) && !local.isDeleted) await removeLocalNotebook(local.id);
       for (const note of remoteNotes) if (!(await hasPendingFor('note', note.id))) await saveLocalNote(note, false);
       for (const notebook of remoteNotebooks) if (!(await hasPendingFor('notebook', notebook.id))) await saveLocalNotebook(notebook, false);
-    } catch {
+    } catch (error: any) {
       // Cached data remains available when a pull fails.
+      if (!lastError) { const raw = error?.response?.data?.message; lastError = (Array.isArray(raw) ? raw.join(', ') : raw) || (error?.response?.status ? `HTTP ${error.response.status}` : error?.message) || 'Could not refresh server data'; }
     }
-    return { synced, online: true };
+    return { synced, online: true, error: lastError };
   })().finally(() => { running = null; });
   return running;
 }
@@ -106,7 +108,7 @@ export async function trashOfflineNote(note: Note) {
 }
 export async function createOfflineNotebook(payload: Partial<Notebook>) {
   const now = new Date().toISOString();
-  const notebook: Notebook = { id: `local-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, title: payload.title ?? 'Untitled notebook', description: payload.description ?? '', color: payload.color ?? '#3B82F6', icon: payload.icon ?? 'book', position: payload.position ?? 0, createdAt: now, updatedAt: now, offlineOnly: true };
+  const notebook: Notebook = { id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: payload.title ?? 'Untitled notebook', description: payload.description ?? '', color: payload.color ?? '#3B82F6', icon: payload.icon ?? 'book', position: payload.position ?? 0, createdAt: now, updatedAt: now, offlineOnly: true };
   await saveLocalNotebook(notebook, true); await enqueue('notebook', 'create', notebook.id, { title: notebook.title, description: notebook.description, color: notebook.color, icon: notebook.icon, position: notebook.position }); return notebook;
 }
 export async function updateOfflineNotebook(notebook: Notebook, patch: Partial<Notebook>) {
@@ -128,7 +130,7 @@ export async function restoreOfflineNotebook(notebook: Notebook) {
   await enqueue('notebook', 'restore', notebook.id, {});
   return updated;
 }
-export async function permanentlyDeleteOffline(entity: 'note'|'notebook', id: string) {
+export async function permanentlyDeleteOffline(entity: 'note' | 'notebook', id: string) {
   if (entity === 'note') {
     const { removeLocalNote } = await import('../storage/localDb');
     await removeLocalNote(id);
@@ -139,12 +141,12 @@ export async function permanentlyDeleteOffline(entity: 'note'|'notebook', id: st
   await enqueue(entity, 'permanent-delete', id, {});
 }
 
-export async function queueNoteReorder(items: {id:string;position:number}[], notebookId: string|null) {
+export async function queueNoteReorder(items: { id: string; position: number }[], notebookId: string | null) {
   const all = await getLocalNotes();
-  for (const item of items) { const note = all.find(n => n.id === item.id); if (note) await saveLocalNote({...note,position:item.position,updatedAt:new Date().toISOString()}, true); }
-  await enqueue('note','reorder','__notes_order__',{items,notebookId});
+  for (const item of items) { const note = all.find(n => n.id === item.id); if (note) await saveLocalNote({ ...note, position: item.position, updatedAt: new Date().toISOString() }, true); }
+  await enqueue('note', 'reorder', '__notes_order__', { items, notebookId });
 }
-export async function queueNotebookReorder(book: Notebook, beforeId: string|null, afterId: string|null, reordered: Notebook[]) {
-  for (const item of reordered) await saveLocalNotebook({...item,position:item.position}, true);
-  await enqueue('notebook','reorder',book.id,{beforeId,afterId});
+export async function queueNotebookReorder(book: Notebook, beforeId: string | null, afterId: string | null, reordered: Notebook[]) {
+  for (const item of reordered) await saveLocalNotebook({ ...item, position: item.position }, true);
+  await enqueue('notebook', 'reorder', book.id, { beforeId, afterId });
 }
