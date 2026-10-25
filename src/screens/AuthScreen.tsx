@@ -2,12 +2,14 @@ import React from "react";
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   Text,
   View,
 } from "react-native";
 import { Button, Field } from "../components/Controls";
 import type { Theme } from "../theme/theme";
+import { FontAwesome } from "@expo/vector-icons";
 export type AuthMode = "login" | "register" | "forgot" | "reset";
 export type AuthValues = {
   email: string;
@@ -26,6 +28,7 @@ export function AuthScreen({
   busy,
   message,
   onGoogle,
+  onBackHome,
 }: {
   theme: Theme;
   mode: AuthMode;
@@ -36,6 +39,7 @@ export function AuthScreen({
   busy: boolean;
   message: string;
   onGoogle: () => void;
+  onBackHome: () => void;
 }) {
   const update = (key: keyof AuthValues, value: string) =>
     setValues({ ...values, [key]: value });
@@ -182,12 +186,30 @@ export function AuthScreen({
         />
         {mode === "login" && (
           <>
-            <Button
-              title="Continue with Google"
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Continue with Google"
               onPress={onGoogle}
-              theme={theme}
-              secondary
-            />
+              disabled={busy}
+              style={{
+                minHeight: 48,
+                marginTop: 12,
+                borderWidth: 1,
+                borderColor: theme.border,
+                borderRadius: 13,
+                backgroundColor: theme.card,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 11,
+                opacity: busy ? 0.6 : 1,
+              }}
+            >
+              <FontAwesome name="google" size={18} color="#4285F4" />
+              <Text style={{ color: theme.text, fontWeight: "800" }}>
+                Continue with Google
+              </Text>
+            </Pressable>
             <Text
               style={{
                 fontSize: 11,
@@ -261,6 +283,17 @@ export function AuthScreen({
             Back to sign in
           </Text>
         )}
+        <Text
+          onPress={onBackHome}
+          style={{
+            textAlign: "center",
+            color: theme.brand,
+            fontWeight: "700",
+            marginTop: 18,
+          }}
+        >
+          ← Back to home
+        </Text>
         <Text
           style={{
             fontSize: 11,

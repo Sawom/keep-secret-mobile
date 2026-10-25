@@ -10,6 +10,7 @@ import {
   type TextInputProps,
 } from "react-native";
 import type { Theme } from "../theme/theme";
+import { Ionicons } from "@expo/vector-icons";
 
 export function Button({
   title,
@@ -125,22 +126,21 @@ export function Field({
             onPress={() => setShowPassword((v) => !v)}
             hitSlop={10}
             style={{
-              minWidth: 58,
-              minHeight: 48,
+              width: 44,
+              height: 48,
               alignItems: "center",
               justifyContent: "center",
-              paddingHorizontal: 8,
               borderWidth: 1,
               borderRadius: 13,
               borderColor: theme.border,
               backgroundColor: theme.card,
             }}
           >
-            <Text
-              style={{ fontSize: 12, fontWeight: "800", color: theme.brand }}
-            >
-              {showPassword ? "Hide" : "Show"}
-            </Text>
+            <Ionicons
+              name={showPassword ? "eye-off-outline" : "eye-outline"}
+              size={21}
+              color={theme.muted}
+            />
           </Pressable>
         </View>
       ) : (

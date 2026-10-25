@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -14,7 +15,7 @@ import { signInWithGoogle } from "./src/auth/googleSignIn";
 import NetInfo, { type NetInfoState } from "@react-native-community/netinfo";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { authService } from "./src/auth/authService";
-import { dataService, type HealthReport } from "./src/api/dataService";
+import { dataService } from "./src/api/dataService";
 import {
   cacheSignedInUser,
   clearLocalPrivateData,
@@ -48,7 +49,6 @@ import {
 } from "./src/sync/syncService";
 import type { Note, Notebook, User } from "./src/types";
 import { palette } from "./src/theme/theme";
-import { Button } from "./src/components/Controls";
 import { NoteEditor, NotebookEditor } from "./src/components/Editors";
 import {
   AuthScreen,
@@ -59,9 +59,11 @@ import { NotesScreen } from "./src/screens/NotesScreen";
 import { NotebooksScreen } from "./src/screens/NotebooksScreen";
 import { SearchScreen } from "./src/screens/SearchScreen";
 import { TrashScreen } from "./src/screens/TrashScreen";
-import { SettingsScreen } from "./src/screens/SettingsScreen";
+import { ProfileScreen } from "./src/screens/ProfileScreen";
+import { HomeScreen } from "./src/screens/HomeScreen";
+import { Ionicons } from "@expo/vector-icons";
 
-type Tab = "Notes" | "Notebooks" | "Search" | "Trash" | "Settings";
+type Tab = "Notes" | "Notebooks" | "Trash" | "Profile";
 const emptyAuth: AuthValues = {
   email: "",
   name: "",
@@ -96,6 +98,7 @@ function confirmAction(
 }
 function AppContent() {
   const [user, setUser] = useState<User | null>(null);
+  const [showHome, setShowHome] = useState(true);
   const [booting, setBooting] = useState(true);
   const [tab, setTab] = useState<Tab>("Notes");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -113,7 +116,6 @@ function AppContent() {
   const [editing, setEditing] = useState<Note | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [color, setColor] = useState("#FFFFFF");
   const [noteNotebookId, setNoteNotebookId] = useState<string | null>(null);
   const [notebookEditorVisible, setNotebookEditorVisible] = useState(false);
   const [editingNotebook, setEditingNotebook] = useState<Notebook | null>(null);
@@ -122,11 +124,6 @@ function AppContent() {
   const [notebookColor, setNotebookColor] = useState("#3B82F6");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [profileName, setProfileName] = useState("");
-  const [profileBusy, setProfileBusy] = useState(false);
-  const [health, setHealth] = useState<HealthReport | null>(null);
-  const [healthLoading, setHealthLoading] = useState(false);
-  const [healthError, setHealthError] = useState("");
   const theme = useMemo(() => palette(isDark), [isDark]);
   const changeTheme = (value: boolean) => {
     setIsDark(value);
@@ -212,14 +209,14 @@ function AppContent() {
           const result = await authService.profile();
           if (alive) {
             setUser(result.user);
-            setProfileName(result.user.fullName || result.user.name || "");
+            setShowHome(false);
             await cacheSignedInUser(result.user);
           }
         } catch {
           const cached = await getCachedSignedInUser();
           if (alive && cached) {
             setUser(cached);
-            setProfileName(cached.fullName || cached.name || "");
+            setShowHome(false);
           }
         }
       } catch (e) {
@@ -296,7 +293,6 @@ function AppContent() {
     setEditing(null);
     setTitle("");
     setContent("");
-    setColor("#FFFFFF");
     setNoteNotebookId(selectedNotebook);
     setEditorVisible(true);
   };
@@ -304,7 +300,6 @@ function AppContent() {
     setEditing(note);
     setTitle(note.title);
     setContent(note.content);
-    setColor(note.color || "#FFFFFF");
     setNoteNotebookId(note.notebookId || null);
     setEditorVisible(true);
   };
@@ -324,7 +319,6 @@ function AppContent() {
         const patch = {
           title: title.trim(),
           content,
-          color,
           notebookId: noteNotebookId,
         };
         await updateOfflineNote(editing, patch);
@@ -333,7 +327,6 @@ function AppContent() {
         const payload = {
           title: title.trim(),
           content,
-          color,
           isPinned: false,
           notebookId: noteNotebookId,
         };
@@ -730,7 +723,7 @@ function AppContent() {
           authValues.password,
         );
         setUser(result.user);
-        setProfileName(result.user.fullName || result.user.name || "");
+        setShowHome(false);
         await cacheSignedInUser(result.user);
         setTab("Notes");
         setAuthValues(emptyAuth);
@@ -745,6 +738,7 @@ function AppContent() {
         );
         setMessage("Registration successful. You can now sign in.");
         setAuthMode("login");
+        setShowHome(false);
       } else if (authMode === "forgot") {
         await authService.forgotPassword(authValues.email.trim());
         setMessage(
@@ -779,54 +773,14 @@ function AppContent() {
             await authService.logout();
           } catch {}
           setUser(null);
+          setShowHome(true);
+          setSearch("");
           setTab("Notes");
           setSelectedNotebook(null);
           await clearLocalPrivateData();
           await refreshLocal();
         })(),
     );
-  const loadHealth = async () => {
-    setHealthLoading(true);
-    setHealthError("");
-    try {
-      setHealth(await dataService.getAdminHealth());
-    } catch (e: any) {
-      setHealthError(
-        e?.response?.status === 403
-          ? "This account does not have admin permission."
-          : e?.response?.status === 401
-            ? "Your session expired. Please sign in again."
-            : "Could not load application health. Check your connection and backend URL.",
-      );
-    } finally {
-      setHealthLoading(false);
-    }
-  };
-  const saveProfile = async () => {
-    if (!profileName.trim()) {
-      Alert.alert("Name required", "Enter your full name.");
-      return;
-    }
-    setProfileBusy(true);
-    try {
-      const updated = await dataService.updateProfile(profileName.trim());
-      const merged = {
-        ...user,
-        ...updated,
-        fullName: updated.fullName || profileName.trim(),
-      } as User;
-      setUser(merged);
-      await cacheSignedInUser(merged);
-      Alert.alert("Saved", "Your profile was updated.");
-    } catch (e: any) {
-      Alert.alert(
-        "Could not update profile",
-        e?.response?.data?.message || "Please try again.",
-      );
-    } finally {
-      setProfileBusy(false);
-    }
-  };
   const googleLogin = async () => {
     setBusy(true);
     setMessage("");
@@ -834,7 +788,7 @@ function AppContent() {
       const idToken = await signInWithGoogle();
       const result = await authService.googleMobile(idToken);
       setUser(result.user);
-      setProfileName(result.user.fullName || result.user.name || "");
+      setShowHome(false);
       await cacheSignedInUser(result.user);
       setTab("Notes");
       setMessage("");
@@ -869,10 +823,29 @@ function AppContent() {
     }
   };
   const openNotebook = (book: Notebook) => {
+    setSearch("");
     setSelectedNotebook(book.id);
     setTab("Notes");
   };
   const renderScreen = () => {
+    // Shared workspace search: notes first, then matching notebooks on this page.
+    if (search.trim() && (tab === "Notes" || tab === "Notebooks")) {
+      return (
+        <SearchScreen
+          theme={theme}
+          notes={notes}
+          notebooks={notebooks}
+          query={search}
+          onOpenNote={openEditNote}
+          onTrashNote={deleteNote}
+          onPinNote={togglePin}
+          onOpenNotebook={openNotebook}
+          onEditNotebook={openEditNotebook}
+          onTrashNotebook={deleteNotebook}
+        />
+      );
+    }
+
     switch (tab) {
       case "Notes":
         return (
@@ -884,8 +857,6 @@ function AppContent() {
             notebooks={notebooks}
             online={online}
             syncing={syncing}
-            search={search}
-            setSearch={setSearch}
             onCreate={openNewNote}
             onOpen={openEditNote}
             onTrash={deleteNote}
@@ -910,22 +881,6 @@ function AppContent() {
             onMoveDown={(b) => void moveNotebook(b, 1)}
           />
         );
-      case "Search":
-        return (
-          <SearchScreen
-            theme={theme}
-            notes={notes}
-            notebooks={notebooks}
-            query={search}
-            setQuery={setSearch}
-            onOpenNote={openEditNote}
-            onTrashNote={deleteNote}
-            onPinNote={togglePin}
-            onOpenNotebook={openNotebook}
-            onEditNotebook={openEditNotebook}
-            onTrashNotebook={deleteNotebook}
-          />
-        );
       case "Trash":
         return (
           <TrashScreen
@@ -939,25 +894,14 @@ function AppContent() {
             onEmptyTrash={emptyTrash}
           />
         );
-      case "Settings":
+      case "Profile":
         return (
-          <SettingsScreen
+          <ProfileScreen
             theme={theme}
             user={user!}
             isDark={isDark}
-            setIsDark={changeTheme}
-            online={online}
-            syncing={syncing}
-            onSync={() => void sync()}
+            onToggleTheme={() => changeTheme(!isDark)}
             onLogout={logout}
-            onSaveProfile={saveProfile}
-            profileName={profileName}
-            setProfileName={setProfileName}
-            profileBusy={profileBusy}
-            health={health}
-            onLoadHealth={() => void loadHealth()}
-            healthLoading={healthLoading}
-            healthError={healthError}
           />
         );
     }
@@ -978,17 +922,31 @@ function AppContent() {
         </Text>
       </SafeAreaView>
     );
+  if (!user && showHome)
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
+        <ExpoStatusBar style={isDark ? "light" : "dark"} />
+        <HomeScreen
+          theme={theme}
+          isDark={isDark}
+          onToggleTheme={() => changeTheme(!isDark)}
+          onSignIn={() => {
+            setAuthMode("login");
+            setMessage("");
+            setShowHome(false);
+          }}
+          onGetStarted={() => {
+            setAuthMode("register");
+            setMessage("");
+            setShowHome(false);
+          }}
+        />
+      </SafeAreaView>
+    );
   if (!user)
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
         <ExpoStatusBar style={isDark ? "light" : "dark"} />
-        <View style={{ position: "absolute", top: 12, right: 16, zIndex: 2 }}>
-          <Pressable onPress={() => changeTheme(!isDark)}>
-            <Text style={{ color: theme.brand, fontWeight: "900" }}>
-              {isDark ? "☀ Light" : "☾ Dark"}
-            </Text>
-          </Pressable>
-        </View>
         <AuthScreen
           theme={theme}
           mode={authMode}
@@ -1002,13 +960,62 @@ function AppContent() {
           busy={busy}
           message={message}
           onGoogle={googleLogin}
+          onBackHome={() => {
+            setShowHome(true);
+            setMessage("");
+          }}
         />
       </SafeAreaView>
     );
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
       <ExpoStatusBar style={isDark ? "light" : "dark"} />
-      <View style={{ flex: 1 }}>{renderScreen()}</View>
+      <View style={{ flex: 1 }}>
+        {(tab === "Notes" || tab === "Notebooks") && (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              marginHorizontal: 16,
+              marginTop: 10,
+              marginBottom: 5,
+              paddingHorizontal: 13,
+              minHeight: 46,
+              borderWidth: 1,
+              borderColor: theme.border,
+              borderRadius: 14,
+              backgroundColor: theme.card,
+            }}
+          >
+            <Ionicons name="search-outline" size={20} color={theme.muted} />
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search notes and notebooks…"
+              placeholderTextColor={theme.muted}
+              returnKeyType="search"
+              style={{
+                flex: 1,
+                color: theme.text,
+                minHeight: 44,
+                paddingVertical: 0,
+              }}
+            />
+            {!!search && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+                onPress={() => setSearch("")}
+                hitSlop={8}
+              >
+                <Ionicons name="close-circle" size={20} color={theme.muted} />
+              </Pressable>
+            )}
+          </View>
+        )}
+        <View style={{ flex: 1 }}>{renderScreen()}</View>
+      </View>
       <View
         style={{
           height: 67,
@@ -1020,49 +1027,61 @@ function AppContent() {
           paddingTop: 6,
         }}
       >
-        {(["Notes", "Notebooks", "Search", "Trash", "Settings"] as Tab[]).map(
-          (t) => (
-            <Pressable
-              key={t}
-              onPress={() => {
-                setTab(t);
-                if (t !== "Notes") setSelectedNotebook(null);
-              }}
+        {[
+          {
+            key: "Notes" as Tab,
+            label: "Notes",
+            icon: "document-text-outline" as const,
+          },
+          {
+            key: "Notebooks" as Tab,
+            label: "Notebooks",
+            icon: "book-outline" as const,
+          },
+          {
+            key: "Trash" as Tab,
+            label: "Trash",
+            icon: "trash-outline" as const,
+          },
+          {
+            key: "Profile" as Tab,
+            label: "Profile",
+            icon: "person-circle-outline" as const,
+          },
+        ].map((item) => (
+          <Pressable
+            key={item.key}
+            accessibilityRole="button"
+            accessibilityLabel={item.label}
+            onPress={() => {
+              setTab(item.key);
+              if (item.key !== "Notes") setSelectedNotebook(null);
+              if (item.key === "Trash" || item.key === "Profile") setSearch("");
+            }}
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              paddingVertical: 3,
+            }}
+          >
+            <Ionicons
+              name={item.icon}
+              size={22}
+              color={tab === item.key ? theme.brand : theme.muted}
+            />
+            <Text
               style={{
-                flex: 1,
-                alignItems: "center",
-                justifyContent: "center",
+                fontSize: 10,
+                fontWeight: tab === item.key ? "900" : "600",
+                color: tab === item.key ? theme.brand : theme.muted,
+                marginTop: 3,
               }}
             >
-              <Text
-                style={{
-                  fontSize: 19,
-                  color: tab === t ? theme.brand : theme.muted,
-                }}
-              >
-                {t === "Notes"
-                  ? "▤"
-                  : t === "Notebooks"
-                    ? "▣"
-                    : t === "Search"
-                      ? "⌕"
-                      : t === "Trash"
-                        ? "♲"
-                        : "⚙"}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 10,
-                  fontWeight: tab === t ? "900" : "600",
-                  color: tab === t ? theme.brand : theme.muted,
-                  marginTop: 3,
-                }}
-              >
-                {t}
-              </Text>
-            </Pressable>
-          ),
-        )}
+              {item.label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
       <NoteEditor
         visible={editorVisible}
@@ -1072,8 +1091,6 @@ function AppContent() {
         setTitle={setTitle}
         content={content}
         setContent={setContent}
-        color={color}
-        setColor={setColor}
         notebooks={notebooks}
         notebookId={noteNotebookId}
         setNotebookId={setNoteNotebookId}

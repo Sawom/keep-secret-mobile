@@ -30,8 +30,7 @@ export function NoteCard({
     <Pressable
       onPress={onSelect ?? onOpen}
       style={{
-        backgroundColor:
-          note.color && note.color !== "#FFFFFF" ? note.color : theme.card,
+        backgroundColor: theme.card,
         borderColor: selected ? theme.brand : theme.border,
         borderWidth: selected ? 2 : 1,
         borderRadius: 17,
@@ -46,7 +45,7 @@ export function NoteCard({
             style={{
               fontSize: 15,
               fontWeight: "800",
-              color: note.color === "#1F2937" ? "#F9FAFB" : theme.text,
+              color: theme.text,
             }}
           >
             {note.title || "Untitled note"}
@@ -56,7 +55,7 @@ export function NoteCard({
             style={{
               fontSize: 13,
               lineHeight: 19,
-              color: note.color === "#1F2937" ? "#D1D5DB" : theme.muted,
+              color: theme.muted,
               marginTop: 7,
             }}
           >
@@ -79,11 +78,9 @@ export function NoteCard({
         }}
       >
         <Text style={{ fontSize: 10, color: theme.muted, flex: 1 }}>
-          {note.offlineOnly
-            ? "● Saved offline"
-            : note.updatedAt
-              ? new Date(note.updatedAt).toLocaleDateString()
-              : "Local note"}
+          {note.updatedAt
+            ? new Date(note.updatedAt).toLocaleDateString()
+            : "Note"}
         </Text>
         {showActions && (
           <View style={{ flexDirection: "row", gap: 13 }}>
