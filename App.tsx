@@ -145,6 +145,23 @@ function AppContent() {
     setTrashNotes(t);
     setTrashNotebooks(b.filter((x) => !!(x as any).isDeleted));
   }, []);
+  // The backend is the source of truth whenever online. Do not depend on the
+  // encrypted device cache to display data created on the web.
+  const refreshServerData = useCallback(async () => {
+    const [remoteNotes, remoteNotebooks] = await Promise.all([
+      dataService.getNotes(),
+      dataService.getNotebooks(),
+    ]);
+    setNotes(remoteNotes.filter((note) => !note.isDeleted));
+    setNotebooks(remoteNotebooks.filter((book) => !book.isDeleted));
+
+    // Cache writes are best-effort; a broken old local cache must not hide
+    // successful server responses or make a server save look like a failure.
+    void Promise.all([
+      ...remoteNotes.map((note) => saveLocalNote(note, false)),
+      ...remoteNotebooks.map((book) => saveLocalNotebook(book, false)),
+    ]).catch((error) => console.warn("Local cache update failed", error));
+  }, []);
   const pullTrash = useCallback(async () => {
     if (!online) return;
     try {
@@ -190,15 +207,18 @@ function AppContent() {
     if (!user || !online || syncing) return;
     setSyncing(true);
     try {
-      await syncNow();
-      await refreshLocal();
+      const result = await syncNow();
+      if ((result as any)?.error) {
+        console.warn("Pending offline sync issue:", (result as any).error);
+      }
+      await refreshServerData();
       await pullTrash();
     } catch (e) {
       console.warn("Sync failed", e);
     } finally {
       setSyncing(false);
     }
-  }, [user, online, syncing, refreshLocal, pullTrash]);
+  }, [user, online, syncing, refreshServerData, pullTrash]);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -273,7 +293,7 @@ function AppContent() {
     if (!user || !online) return;
     const refreshFromServer = () => {
       void syncNow()
-        .then(() => refreshLocal())
+        .then(() => refreshServerData())
         .catch((error) => console.warn("Background sync failed", error));
     };
     const interval = setInterval(refreshFromServer, 60_000);
@@ -284,7 +304,7 @@ function AppContent() {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [user?.id, online, refreshLocal]);
+  }, [user?.id, online, refreshServerData]);
   useEffect(() => {
     if (!user) return;
     void pullTrash();
@@ -360,63 +380,70 @@ function AppContent() {
       Alert.alert("Content required", "Please enter some note content.");
       return;
     }
+
     setBusy(true);
     try {
-      let savedId: string;
-      if (editing) {
-        const patch = {
-          title: title.trim(),
-          content,
-          notebookId: noteNotebookId,
-        };
-        await updateOfflineNote(editing, patch);
-        savedId = editing.id;
-      } else {
-        const payload = {
-          title: title.trim(),
-          content,
-          isPinned: false,
-          notebookId: noteNotebookId,
-        };
-        const created = await createOfflineNote(payload);
-        savedId = created.id;
+      const patch = {
+        title: title.trim(),
+        content,
+        notebookId: noteNotebookId,
+      };
+      const payload = {
+        ...patch,
+        isPinned: editing?.isPinned ?? false,
+      };
+
+      if (online && (!editing || !editing.id.startsWith("local-"))) {
+        // Online CRUD goes straight to the shared backend. Local encryption or
+        // pending-queue corruption must not block a server-side create/update.
+        const saved = editing
+          ? await dataService.updateNote(editing.id, patch)
+          : await dataService.createNote(payload);
+
+        setNotes((current) => {
+          const withoutOld = current.filter(
+            (item) => item.id !== saved.id && item.id !== editing?.id,
+          );
+          return [saved, ...withoutOld];
+        });
+        setEditorVisible(false);
+        setEditing(null);
+        setTitle("");
+        setContent("");
+        try {
+          await saveLocalNote(saved, false);
+        } catch (cacheError) {
+          console.warn(
+            "Note saved remotely; local cache update failed",
+            cacheError,
+          );
+        }
+        void refreshServerData().catch((error) =>
+          console.warn("Could not refresh notes after save", error),
+        );
+        return;
       }
+
+      // Offline-only create/update remains queued for later synchronization.
+      if (editing) await updateOfflineNote(editing, patch);
+      else await createOfflineNote(payload);
       setEditorVisible(false);
+      setEditing(null);
       await refreshLocal();
-      if (online) {
-        let result = await syncNow();
-        let stillPending = (await pendingOps()).some(
-          (op) => op.entity === "note" && op.entityId === savedId,
-        );
-        if (stillPending) {
-          result = await syncNow();
-          stillPending = (await pendingOps()).some(
-            (op) => op.entity === "note" && op.entityId === savedId,
-          );
-        }
-        await refreshLocal();
-        if (stillPending) {
-          const detail = (result as any)?.error;
-          Alert.alert(
-            "Saved on this device",
-            detail
-              ? `Server sync is pending: ${detail}`
-              : "Your note is saved locally. It will sync when the server connection is available.",
-          );
-        }
-      } else {
-        Alert.alert(
-          "Saved offline",
-          "Your note is encrypted on this device and will sync when you are online.",
-        );
-      }
+      Alert.alert(
+        "Saved offline",
+        "This note is saved on this device and will sync when the server is reachable.",
+      );
     } catch (e: any) {
+      const raw = e?.response?.data?.message;
+      const detail = Array.isArray(raw) ? raw.join(", ") : raw;
       Alert.alert(
         "Could not save note",
-        e?.response?.data?.message ||
+        detail ||
           e?.message ||
-          "Local save failed. Check device storage and try again.",
+          "The server did not save this note. Please try again.",
       );
+      // Keep the editor open so the user can correct/retry instead of losing input.
     } finally {
       setBusy(false);
     }
@@ -548,58 +575,66 @@ function AppContent() {
     }
     setBusy(true);
     try {
-      let savedId: string;
-      if (editingNotebook) {
-        const patch = {
-          title: notebookTitle.trim(),
-          description: notebookDescription,
-          color: notebookColor,
-        };
-        await updateOfflineNotebook(editingNotebook, patch);
-        savedId = editingNotebook.id;
-      } else {
-        const payload = {
-          title: notebookTitle.trim(),
-          description: notebookDescription,
-          color: notebookColor,
-          icon: "book",
-        };
-        const created = await createOfflineNotebook(payload);
-        savedId = created.id;
+      const patch = {
+        title: notebookTitle.trim(),
+        description: notebookDescription,
+        color: notebookColor,
+      };
+      const payload = { ...patch, icon: editingNotebook?.icon || "book" };
+
+      if (
+        online &&
+        (!editingNotebook || !editingNotebook.id.startsWith("local-"))
+      ) {
+        const saved = editingNotebook
+          ? await dataService.updateNotebook(editingNotebook.id, patch)
+          : await dataService.createNotebook(payload);
+
+        setNotebooks((current) => {
+          const withoutOld = current.filter(
+            (item) => item.id !== saved.id && item.id !== editingNotebook?.id,
+          );
+          return [...withoutOld, saved].sort(
+            (a, b) => (a.position ?? 0) - (b.position ?? 0),
+          );
+        });
+        setNotebookEditorVisible(false);
+        setEditingNotebook(null);
+        setNotebookTitle("");
+        setNotebookDescription("");
+        try {
+          await saveLocalNotebook(saved, false);
+        } catch (cacheError) {
+          console.warn(
+            "Notebook saved remotely; local cache update failed",
+            cacheError,
+          );
+        }
+        void refreshServerData().catch((error) =>
+          console.warn("Could not refresh notebooks after save", error),
+        );
+        return;
       }
+
+      if (editingNotebook) await updateOfflineNotebook(editingNotebook, patch);
+      else await createOfflineNotebook(payload);
       setNotebookEditorVisible(false);
+      setEditingNotebook(null);
       await refreshLocal();
-      if (online) {
-        let result = await syncNow();
-        let stillPending = (await pendingOps()).some(
-          (op) => op.entity === "notebook" && op.entityId === savedId,
-        );
-        if (stillPending) {
-          result = await syncNow();
-          stillPending = (await pendingOps()).some(
-            (op) => op.entity === "notebook" && op.entityId === savedId,
-          );
-        }
-        await refreshLocal();
-        if (stillPending) {
-          const detail = (result as any)?.error;
-          Alert.alert(
-            "Saved on this device",
-            detail
-              ? `Notebook sync is pending: ${detail}`
-              : "Your notebook is saved locally and will sync when the server connection is available.",
-          );
-        }
-      } else
-        Alert.alert(
-          "Saved offline",
-          "Your notebook will sync when you are online.",
-        );
+      Alert.alert(
+        "Saved offline",
+        "This notebook is saved on this device and will sync when the server is reachable.",
+      );
     } catch (e: any) {
+      const raw = e?.response?.data?.message;
+      const detail = Array.isArray(raw) ? raw.join(", ") : raw;
       Alert.alert(
         "Could not save notebook",
-        e?.response?.data?.message || e?.message || "Please try again.",
+        detail ||
+          e?.message ||
+          "The server did not save this notebook. Please try again.",
       );
+      // Keep the editor open so the user can correct/retry instead of losing input.
     } finally {
       setBusy(false);
     }
@@ -777,7 +812,7 @@ function AppContent() {
         setAuthValues(emptyAuth);
         if (online) {
           await syncNow();
-          await refreshLocal();
+          await refreshServerData();
         }
       } else if (authMode === "register") {
         if (authValues.password !== authValues.confirm)
@@ -846,7 +881,7 @@ function AppContent() {
       setMessage("");
       if (online) {
         await syncNow();
-        await refreshLocal();
+        await refreshServerData();
       }
     } catch (e: any) {
       const code = String(e?.code ?? "");
