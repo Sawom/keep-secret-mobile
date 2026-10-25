@@ -14,7 +14,7 @@
         "backgroundColor": "#101827"
       },
       "softwareKeyboardLayoutMode": "pan",
-      "versionCode": 1
+      "versionCode": 3
     },
     "plugins": [
       "expo-secure-store",

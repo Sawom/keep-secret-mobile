@@ -31,6 +31,10 @@
       "android": {
         "buildType": "apk",
         "autoIncrement": true
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://keep-secret-backend.vercel.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "770566808078-la41u98h63ieokoftu869nhndtq13sj0.apps.googleusercontent.com"
       }
     }
   }
