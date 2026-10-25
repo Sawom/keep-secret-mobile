@@ -3,6 +3,16 @@ import { EmptyState } from "../components/Controls";
 import { NoteCard, NotebookCard } from "../components/Cards";
 import type { Note, Notebook } from "../types";
 import type { Theme } from "../theme/theme";
+
+type SearchRow =
+  | { kind: "note"; item: Note }
+  | { kind: "book"; item: Notebook };
+
+type SearchSection = {
+  title: string;
+  data: SearchRow[];
+};
+
 export function SearchScreen({
   theme,
   notes,
@@ -33,6 +43,21 @@ export function SearchScreen({
   const foundBooks = notebooks.filter((b) =>
     `${b.title} ${b.description || ""}`.toLowerCase().includes(q),
   );
+
+  const sections: SearchSection[] = [];
+  if (foundNotes.length) {
+    sections.push({
+      title: `Notes (${foundNotes.length})`,
+      data: foundNotes.map((item): SearchRow => ({ kind: "note", item })),
+    });
+  }
+  if (foundBooks.length) {
+    sections.push({
+      title: `Notebooks (${foundBooks.length})`,
+      data: foundBooks.map((item): SearchRow => ({ kind: "book", item })),
+    });
+  }
+
   return (
     <View style={{ flex: 1 }}>
       {!q ? (
@@ -48,31 +73,8 @@ export function SearchScreen({
           body="Try a different keyword."
         />
       ) : (
-        <SectionList
-          sections={[
-            ...(foundNotes.length
-              ? [
-                  {
-                    title: `Notes (${foundNotes.length})`,
-                    data: foundNotes.map((item) => ({
-                      kind: "note" as const,
-                      item,
-                    })),
-                  },
-                ]
-              : []),
-            ...(foundBooks.length
-              ? [
-                  {
-                    title: `Notebooks (${foundBooks.length})`,
-                    data: foundBooks.map((item) => ({
-                      kind: "book" as const,
-                      item,
-                    })),
-                  },
-                ]
-              : []),
-          ]}
+        <SectionList<SearchRow, SearchSection>
+          sections={sections}
           keyExtractor={(row) => `${row.kind}-${row.item.id}`}
           contentContainerStyle={{
             paddingHorizontal: 16,
@@ -96,19 +98,19 @@ export function SearchScreen({
           renderItem={({ item }) =>
             item.kind === "note" ? (
               <NoteCard
-                note={item.item as Note}
+                note={item.item}
                 theme={theme}
-                onOpen={() => onOpenNote(item.item as Note)}
-                onTrash={() => onTrashNote(item.item as Note)}
-                onPin={() => onPinNote(item.item as Note)}
+                onOpen={() => onOpenNote(item.item)}
+                onTrash={() => onTrashNote(item.item)}
+                onPin={() => onPinNote(item.item)}
               />
             ) : (
               <NotebookCard
-                notebook={item.item as Notebook}
+                notebook={item.item}
                 theme={theme}
-                onOpen={() => onOpenNotebook(item.item as Notebook)}
-                onEdit={() => onEditNotebook(item.item as Notebook)}
-                onTrash={() => onTrashNotebook(item.item as Notebook)}
+                onOpen={() => onOpenNotebook(item.item)}
+                onEdit={() => onEditNotebook(item.item)}
+                onTrash={() => onTrashNotebook(item.item)}
               />
             )
           }

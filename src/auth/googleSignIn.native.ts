@@ -1,10 +1,5 @@
-import {
-  GoogleSignin,
-  isSuccessResponse,
-} from "@react-native-google-signin/google-signin";
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
 
-// The current library returns the user/token inside response.data.
-// Reading response.idToken directly causes the false "no ID token" error.
 const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim();
 
 GoogleSignin.configure({
@@ -21,24 +16,29 @@ export async function signInWithGoogle(): Promise<string> {
   }
 
   await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-  const response = await GoogleSignin.signIn();
 
-  if (!isSuccessResponse(response)) {
+  // Keep the native library response separate from our app's User type.
+  // The response type differs between installed library typings/releases.
+  const response: unknown = await GoogleSignin.signIn();
+  const result = response as {
+    type?: string;
+    data?: { idToken?: string | null };
+    idToken?: string | null;
+  };
+
+  if (result.type === "cancelled" || result.type === "cancel") {
     throw Object.assign(new Error("Google sign-in was cancelled."), {
       code: "SIGN_IN_CANCELLED",
     });
   }
 
-  // Library v16 shape is response.data.idToken (not response.idToken).
-  let idToken = response.data?.idToken ?? null;
-
-  // Some Android builds populate the token through getTokens().
+  let idToken = result.data?.idToken ?? result.idToken ?? null;
   if (!idToken) {
     try {
       const tokens = await GoogleSignin.getTokens();
       idToken = tokens.idToken || null;
     } catch {
-      // Keep the actionable error below. Never log or persist the token.
+      // Report a configuration-specific message below without logging tokens.
     }
   }
 

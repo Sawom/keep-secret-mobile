@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   BackHandler,
   Linking,
   Platform,
@@ -15,7 +16,7 @@ import { signInWithGoogle } from "./src/auth/googleSignIn";
 import NetInfo, { type NetInfoState } from "@react-native-community/netinfo";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { authService } from "./src/auth/authService";
-import { dataService } from "./src/api/dataService";
+import { dataService, type HealthReport } from "./src/api/dataService";
 import {
   cacheSignedInUser,
   clearLocalPrivateData,
@@ -61,9 +62,10 @@ import { SearchScreen } from "./src/screens/SearchScreen";
 import { TrashScreen } from "./src/screens/TrashScreen";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
+import { AdminHealthScreen } from "./src/screens/AdminHealthScreen";
 import { Ionicons } from "@expo/vector-icons";
 
-type Tab = "Notes" | "Notebooks" | "Trash" | "Profile";
+type Tab = "Notes" | "Notebooks" | "Trash" | "Profile" | "Health";
 const emptyAuth: AuthValues = {
   email: "",
   name: "",
@@ -124,6 +126,9 @@ function AppContent() {
   const [notebookColor, setNotebookColor] = useState("#3B82F6");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [healthReport, setHealthReport] = useState<HealthReport | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthError, setHealthError] = useState("");
   const theme = useMemo(() => palette(isDark), [isDark]);
   const changeTheme = (value: boolean) => {
     setIsDark(value);
@@ -262,10 +267,53 @@ function AppContent() {
   useEffect(() => {
     if (user && online) void sync();
   }, [user, online]);
+  // Pull changes made on the web while the mobile app stays open, and sync again
+  // when Android brings the app back to the foreground.
+  useEffect(() => {
+    if (!user || !online) return;
+    const refreshFromServer = () => {
+      void syncNow()
+        .then(() => refreshLocal())
+        .catch((error) => console.warn("Background sync failed", error));
+    };
+    const interval = setInterval(refreshFromServer, 60_000);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshFromServer();
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [user?.id, online, refreshLocal]);
   useEffect(() => {
     if (!user) return;
     void pullTrash();
   }, [user, online, pullTrash]);
+  const loadHealthReport = useCallback(async () => {
+    if (user?.role !== "ADMIN") return;
+    setHealthLoading(true);
+    setHealthError("");
+    try {
+      const report = await dataService.getAdminHealth();
+      setHealthReport(report);
+    } catch (error: any) {
+      const message = error?.response?.data?.message;
+      setHealthError(
+        (Array.isArray(message) ? message.join(", ") : message) ||
+          (error?.response?.status === 403
+            ? "Your account does not have admin permission on the backend."
+            : error?.response?.status
+              ? `Health API returned HTTP ${error.response.status}.`
+              : error?.message ||
+                "Please check your internet connection and try again."),
+      );
+    } finally {
+      setHealthLoading(false);
+    }
+  }, [user?.role]);
+  useEffect(() => {
+    if (user?.role === "ADMIN" && tab === "Health") void loadHealthReport();
+  }, [user?.role, tab, loadHealthReport]);
   useEffect(() => {
     if (Platform.OS === "web") return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -727,6 +775,10 @@ function AppContent() {
         await cacheSignedInUser(result.user);
         setTab("Notes");
         setAuthValues(emptyAuth);
+        if (online) {
+          await syncNow();
+          await refreshLocal();
+        }
       } else if (authMode === "register") {
         if (authValues.password !== authValues.confirm)
           throw new Error("Passwords do not match.");
@@ -792,6 +844,10 @@ function AppContent() {
       await cacheSignedInUser(result.user);
       setTab("Notes");
       setMessage("");
+      if (online) {
+        await syncNow();
+        await refreshLocal();
+      }
     } catch (e: any) {
       const code = String(e?.code ?? "");
       const status = e?.response?.status;
@@ -904,6 +960,16 @@ function AppContent() {
             onLogout={logout}
           />
         );
+      case "Health":
+        return user?.role === "ADMIN" ? (
+          <AdminHealthScreen
+            theme={theme}
+            report={healthReport}
+            loading={healthLoading}
+            error={healthError}
+            onRefresh={() => void loadHealthReport()}
+          />
+        ) : null;
     }
   };
   if (booting)
@@ -1048,6 +1114,15 @@ function AppContent() {
             label: "Profile",
             icon: "person-circle-outline" as const,
           },
+          ...(user?.role === "ADMIN"
+            ? [
+                {
+                  key: "Health" as Tab,
+                  label: "Health",
+                  icon: "pulse-outline" as const,
+                },
+              ]
+            : []),
         ].map((item) => (
           <Pressable
             key={item.key}

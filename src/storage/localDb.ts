@@ -61,10 +61,19 @@ export async function initLocalDb() {
 }
 export async function getLocalNotes(includeDeleted = false): Promise<Note[]> {
   const d = await db();
-  const rows = await d.getAllAsync<{ payload: string }>(
-    "SELECT payload FROM notes ORDER BY updatedAt DESC",
+  const rows = await d.getAllAsync<{ id: string; payload: string }>(
+    "SELECT id, payload FROM notes ORDER BY updatedAt DESC",
   );
-  const values = await Promise.all(rows.map((r) => open<Note>(r.payload)));
+  const values: Note[] = [];
+  for (const row of rows) {
+    try {
+      values.push(await open<Note>(row.payload));
+    } catch {
+      // A cache entry encrypted with an old/lost device key cannot be recovered.
+      // Remove only that local copy; sync will restore the server copy if it exists.
+      await d.runAsync("DELETE FROM notes WHERE id = ?", row.id);
+    }
+  }
   return values
     .filter((n) => (includeDeleted ? !!n.isDeleted : !n.isDeleted))
     .sort(
@@ -75,12 +84,19 @@ export async function getLocalNotes(includeDeleted = false): Promise<Note[]> {
 }
 export async function getLocalNotebooks(): Promise<Notebook[]> {
   const d = await db();
-  const rows = await d.getAllAsync<{ payload: string }>(
-    "SELECT payload FROM notebooks ORDER BY updatedAt DESC",
+  const rows = await d.getAllAsync<{ id: string; payload: string }>(
+    "SELECT id, payload FROM notebooks ORDER BY updatedAt DESC",
   );
-  return (await Promise.all(rows.map((r) => open<Notebook>(r.payload)))).sort(
-    (a, b) => (a.position ?? 0) - (b.position ?? 0),
-  );
+  const values: Notebook[] = [];
+  for (const row of rows) {
+    try {
+      values.push(await open<Notebook>(row.payload));
+    } catch {
+      // Server data remains the source of truth; discard an unreadable local cache row.
+      await d.runAsync("DELETE FROM notebooks WHERE id = ?", row.id);
+    }
+  }
+  return values.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 export async function saveLocalNote(note: Note, pending = false) {
   const d = await db();
@@ -135,9 +151,23 @@ export async function pendingOps() {
     entityId: string;
     payload: string;
   }>("SELECT * FROM pending_ops ORDER BY id ASC");
-  return Promise.all(
-    rows.map(async (r) => ({ ...r, payload: await open<any>(r.payload) })),
-  );
+  const valid: Array<{
+    id: number;
+    entity: string;
+    action: string;
+    entityId: string;
+    payload: any;
+  }> = [];
+  for (const row of rows) {
+    try {
+      valid.push({ ...row, payload: await open<any>(row.payload) });
+    } catch {
+      // This queued operation is unreadable, so it cannot safely be replayed.
+      // Keep the app usable and allow the next server pull to restore remote data.
+      await d.runAsync("DELETE FROM pending_ops WHERE id = ?", row.id);
+    }
+  }
+  return valid;
 }
 export async function removePendingOp(id: number) {
   const d = await db();
