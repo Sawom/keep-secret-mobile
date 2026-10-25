@@ -167,11 +167,13 @@ function AppContent() {
   // Fetch from the shared backend directly so notes created on the web are not
   // dependent on a possibly stale local cache. Keep only pending offline records
   // alongside server data until their queued operations have successfully synced.
-  const refreshServerData = useCallback(async () => {
+  const refreshServerData = useCallback(async (fast = false) => {
+    // Fast mode fetches only the first page so server data can appear quickly.
+    // A complete paginated refresh is launched in the background afterwards.
     const [remoteNotes, remoteNotebooks, localNotes, localNotebooks] =
       await Promise.all([
-        dataService.getNotes(),
-        dataService.getNotebooks(),
+        fast ? dataService.getNotesFirstPage() : dataService.getNotes(),
+        fast ? dataService.getNotebooksFirstPage() : dataService.getNotebooks(),
         getLocalNotes(),
         getLocalNotebooks(),
       ]);
@@ -215,20 +217,44 @@ function AppContent() {
       .map(({ book }) => book);
 
     // A queued local edit wins over the older server version until that edit syncs.
-    const mergedNotes = remoteNotes.map(
+    // In fast mode retain cached older pages while the full background pull runs,
+    // preventing the list from briefly shrinking to only the first server page.
+    const visibleRemoteNotes = fast
+      ? [
+          ...remoteNotes,
+          ...localNotes.filter((note) => !remoteNoteIds.has(note.id)),
+        ]
+      : remoteNotes;
+    const visibleRemoteNotebooks = fast
+      ? [
+          ...remoteNotebooks,
+          ...localNotebooks.filter((book) => !remoteNotebookIds.has(book.id)),
+        ]
+      : remoteNotebooks;
+    const mergedNotes = visibleRemoteNotes.map(
       (note) => pendingNoteById.get(note.id) ?? note,
     );
-    const mergedNotebooks = remoteNotebooks.map(
+    const mergedNotebooks = visibleRemoteNotebooks.map(
       (book) => pendingNotebookById.get(book.id) ?? book,
     );
-    setNotes([
-      ...unsyncedNotes.filter((note) => !note.isDeleted),
-      ...mergedNotes.filter((note) => !note.isDeleted),
-    ]);
-    setNotebooks([
-      ...unsyncedNotebooks.filter((book) => !book.isDeleted),
-      ...mergedNotebooks.filter((book) => !book.isDeleted),
-    ]);
+    setNotes(
+      [
+        ...unsyncedNotes.filter((note) => !note.isDeleted),
+        ...mergedNotes.filter((note) => !note.isDeleted),
+      ].filter(
+        (note, index, all) =>
+          all.findIndex((item) => item.id === note.id) === index,
+      ),
+    );
+    setNotebooks(
+      [
+        ...unsyncedNotebooks.filter((book) => !book.isDeleted),
+        ...mergedNotebooks.filter((book) => !book.isDeleted),
+      ].filter(
+        (book, index, all) =>
+          all.findIndex((item) => item.id === book.id) === index,
+      ),
+    );
 
     // Refresh the encrypted cache without overwriting any record with queued
     // offline edits. Cache failures never turn a successful server fetch into an error.
@@ -300,26 +326,36 @@ function AppContent() {
     if (!user) return;
     setSyncing(true);
     try {
-      const result = await syncNow();
+      // Paint server data as soon as the first page arrives. Offline operations
+      // are replayed concurrently and must not delay the initial screen render.
+      const firstPull = refreshServerData(true).catch(async (error) => {
+        console.warn("Could not load the first server page", error);
+        await refreshLocal();
+      });
+      const queueSync = syncNow({ pullRemote: false });
+      await firstPull;
+
+      // Load the remaining cursor pages without blocking the initial UI.
+      void refreshServerData(false).catch((error) =>
+        console.warn("Could not finish background server refresh", error),
+      );
+
+      const result = await queueSync;
       if ((result as any)?.error) {
         console.warn("Pending offline sync issue:", (result as any).error);
       }
-
-      if (result.online) {
-        // Pull directly after the queue is processed. Do not rely on refreshLocal(),
-        // which only reads SQLite and cannot see changes made in the web app.
-        try {
-          await refreshServerData();
-        } catch (error) {
-          console.warn("Could not pull latest server data", error);
-          await refreshLocal();
-        }
-        await pullTrash();
-      } else {
-        await refreshLocal();
+      if (result.online && result.synced > 0) {
+        // A successful queued create/update may have received a new server ID.
+        void refreshServerData(false).catch((error) =>
+          console.warn(
+            "Could not refresh after syncing offline changes",
+            error,
+          ),
+        );
       }
-    } catch (e) {
-      console.warn("Sync failed", e);
+      void pullTrash();
+    } catch (error) {
+      console.warn("Sync failed", error);
       await refreshLocal();
     } finally {
       setSyncing(false);
@@ -416,12 +452,17 @@ function AppContent() {
   useEffect(() => {
     if (!user || !online) return;
     const refreshFromServer = () => {
-      void syncNow()
-        .then(async (result) => {
-          if (result.online) await refreshServerData();
-          else await refreshLocal();
+      // Refresh the visible page immediately, while queued writes sync separately.
+      void refreshServerData(true)
+        .then(() => {
+          void refreshServerData(false).catch((error) =>
+            console.warn("Full background refresh failed", error),
+          );
         })
-        .catch((error) => console.warn("Background sync failed", error));
+        .catch((error) => console.warn("Fast refresh failed", error));
+      void syncNow({ pullRemote: false }).catch((error) =>
+        console.warn("Background queue sync failed", error),
+      );
     };
     const interval = setInterval(refreshFromServer, 60_000);
     const subscription = AppState.addEventListener("change", (state) => {

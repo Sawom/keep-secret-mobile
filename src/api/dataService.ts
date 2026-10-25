@@ -105,13 +105,13 @@ function unwrapEntity<T>(body: unknown, keys: string[] = []): T {
   return value as T;
 }
 
-async function getPaged<T>(path: string): Promise<T[]> {
+async function getPaged<T>(path: string, maxPages = 100): Promise<T[]> {
   const all: T[] = [];
   let cursor: string | undefined;
 
   // Cursor pagination is used when the API provides a cursor. If the API returns
   // a plain array or a single-page envelope, use that page and stop immediately.
-  for (let page = 0; page < 100; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const params = new URLSearchParams({ limit: "50" });
     if (cursor) params.set("cursor", cursor);
 
@@ -131,6 +131,10 @@ async function getPaged<T>(path: string): Promise<T[]> {
 }
 
 export const dataService = {
+  // First-page methods are used to paint the screen quickly. The full paginated
+  // methods still load every page in the background so older records are not lost.
+  getNotesFirstPage: () => getPaged<Note>("/notes", 1),
+  getNotebooksFirstPage: () => getPaged<Notebook>("/notebooks", 1),
   getNotes: () => getPaged<Note>("/notes"),
   getNotebooks: () => getPaged<Notebook>("/notebooks"),
 

@@ -23,7 +23,12 @@ let running: Promise<{
   error?: string;
 }> | null = null;
 
-export async function syncNow() {
+/**
+ * Replays queued offline writes. Set pullRemote=false when the UI starts its own
+ * fast server pull; this avoids waiting for the whole queue before showing data
+ * and avoids downloading the same full lists twice.
+ */
+export async function syncNow(options: { pullRemote?: boolean } = {}) {
   if (running) return running;
   running = (async () => {
     const state = await NetInfo.fetch();
@@ -139,62 +144,64 @@ export async function syncNow() {
         break;
       }
     }
-    try {
-      const [remoteNotes, remoteNotebooks] = await Promise.all([
-        dataService.getNotes(),
-        dataService.getNotebooks(),
-      ]);
-      const remoteNoteIds = new Set(remoteNotes.map((n) => n.id));
-      const remoteNotebookIds = new Set(remoteNotebooks.map((n) => n.id));
-      for (const local of await getLocalNotes())
-        if (
-          !local.id.startsWith("local-") &&
-          !remoteNoteIds.has(local.id) &&
-          !(await hasPendingFor("note", local.id))
-        )
-          await removeLocalNote(local.id);
-      for (const local of await getLocalNotebooks())
-        if (
-          !local.id.startsWith("local-") &&
-          !remoteNotebookIds.has(local.id) &&
-          !(await hasPendingFor("notebook", local.id)) &&
-          !local.isDeleted
-        )
-          await removeLocalNotebook(local.id);
-      // Cache independent records concurrently; serial encryption/database writes
-      // made a larger account feel slow after every refresh.
-      const [notesToCache, notebooksToCache] = await Promise.all([
-        Promise.all(
-          remoteNotes.map(async (note) => ({
-            note,
-            pending: await hasPendingFor("note", note.id),
-          })),
-        ),
-        Promise.all(
-          remoteNotebooks.map(async (notebook) => ({
-            notebook,
-            pending: await hasPendingFor("notebook", notebook.id),
-          })),
-        ),
-      ]);
-      await Promise.all([
-        ...notesToCache
-          .filter(({ pending }) => !pending)
-          .map(({ note }) => saveLocalNote(note, false)),
-        ...notebooksToCache
-          .filter(({ pending }) => !pending)
-          .map(({ notebook }) => saveLocalNotebook(notebook, false)),
-      ]);
-    } catch (error: any) {
-      // Cached data remains available when a pull fails.
-      if (!lastError) {
-        const raw = error?.response?.data?.message;
-        lastError =
-          (Array.isArray(raw) ? raw.join(", ") : raw) ||
-          (error?.response?.status
-            ? `HTTP ${error.response.status}`
-            : error?.message) ||
-          "Could not refresh server data";
+    if (options.pullRemote !== false) {
+      try {
+        const [remoteNotes, remoteNotebooks] = await Promise.all([
+          dataService.getNotes(),
+          dataService.getNotebooks(),
+        ]);
+        const remoteNoteIds = new Set(remoteNotes.map((n) => n.id));
+        const remoteNotebookIds = new Set(remoteNotebooks.map((n) => n.id));
+        for (const local of await getLocalNotes())
+          if (
+            !local.id.startsWith("local-") &&
+            !remoteNoteIds.has(local.id) &&
+            !(await hasPendingFor("note", local.id))
+          )
+            await removeLocalNote(local.id);
+        for (const local of await getLocalNotebooks())
+          if (
+            !local.id.startsWith("local-") &&
+            !remoteNotebookIds.has(local.id) &&
+            !(await hasPendingFor("notebook", local.id)) &&
+            !local.isDeleted
+          )
+            await removeLocalNotebook(local.id);
+        // Cache independent records concurrently; serial encryption/database writes
+        // made a larger account feel slow after every refresh.
+        const [notesToCache, notebooksToCache] = await Promise.all([
+          Promise.all(
+            remoteNotes.map(async (note) => ({
+              note,
+              pending: await hasPendingFor("note", note.id),
+            })),
+          ),
+          Promise.all(
+            remoteNotebooks.map(async (notebook) => ({
+              notebook,
+              pending: await hasPendingFor("notebook", notebook.id),
+            })),
+          ),
+        ]);
+        await Promise.all([
+          ...notesToCache
+            .filter(({ pending }) => !pending)
+            .map(({ note }) => saveLocalNote(note, false)),
+          ...notebooksToCache
+            .filter(({ pending }) => !pending)
+            .map(({ notebook }) => saveLocalNotebook(notebook, false)),
+        ]);
+      } catch (error: any) {
+        // Cached data remains available when a pull fails.
+        if (!lastError) {
+          const raw = error?.response?.data?.message;
+          lastError =
+            (Array.isArray(raw) ? raw.join(", ") : raw) ||
+            (error?.response?.status
+              ? `HTTP ${error.response.status}`
+              : error?.message) ||
+            "Could not refresh server data";
+        }
       }
     }
     return { synced, online: true, error: lastError };
